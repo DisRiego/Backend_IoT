@@ -1,0 +1,14 @@
+venv/
+.github
+
+__pycache__/
+
+app/__pycache__
+app/roles/__pycache__
+env
+uploads
+.pytest_cache/
+
+/.env
+.env
+
