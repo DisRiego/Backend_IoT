@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 # Cargar variables de entorno
 load_dotenv()
-
+print("DB URL:", os.getenv("DATABASE_URL"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Configurar la base de datos
