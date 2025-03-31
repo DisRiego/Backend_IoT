@@ -21,7 +21,8 @@ from app.devices.schemas import (
     DeviceCreate,
     DeviceUpdate,
     DeviceAssignRequest,
-    DeviceReassignRequest
+    DeviceReassignRequest,
+    DeviceIotReadingUpdate
 )
 
 class DeviceService:
@@ -566,3 +567,44 @@ class DeviceService:
             return new_device
         except Exception as e:
             raise Exception(f"Error al insertar datos: {str(e)}")
+        
+
+    def update_device_reading(self, reading: DeviceIotReadingUpdate) -> Dict[str, Any]:
+        """
+        Actualiza la lectura del sensor en un dispositivo existente (tabla device_iot)
+        basándose en el device_id recibido.
+        """
+        try:
+            device = self.db.query(DeviceIot).filter(DeviceIot.id == reading.device_id).first()
+            if not device:
+                return JSONResponse(
+                    status_code=404,
+                    content={"success": False, "data": "Dispositivo no encontrado"}
+                )
+            # Actualizamos el campo price_device con el nuevo sensor_value.
+            device.price_device = {"sensor_value": reading.sensor_value}
+            self.db.commit()
+            self.db.refresh(device)
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "data": {
+                        "title": "Lectura actualizada",
+                        "message": "La lectura del sensor ha sido actualizada correctamente",
+                        "device": jsonable_encoder(device)
+                    }
+                }
+            )
+        except Exception as e:
+            self.db.rollback()
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "data": {
+                        "title": "Error al actualizar lectura",
+                        "message": f"Error: {str(e)}"
+                    }
+                }
+            )

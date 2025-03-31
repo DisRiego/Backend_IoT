@@ -11,7 +11,8 @@ from app.devices.schemas import (
     DeviceDetail,
     DeviceAssignRequest,
     DeviceStatusChange,
-    DeviceFilter
+    DeviceFilter,
+    DeviceIotReadingUpdate
 )
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
@@ -207,3 +208,15 @@ def device_options(device_id: int, db: Session = Depends(get_db)):
                 "message": f"Error: {str(e)}"
             }
         }
+        
+
+@router.post("/sensor_update", response_model=Dict[str, Any])
+def update_sensor_reading(reading: DeviceIotReadingUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza la lectura del sensor de un dispositivo existente en device_iot.
+    Se espera un JSON con:
+      - device_id: El id del dispositivo (device_iot) a actualizar.
+      - sensor_value: La nueva lectura del sensor.
+    """
+    device_service = DeviceService(db)
+    return device_service.update_device_reading(reading)

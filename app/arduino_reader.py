@@ -1,14 +1,12 @@
-# app/arduino_reader.py
-
 import serial
 import threading
 import time
+import json
 from app.devices.services import DeviceService  
 from app.database import SessionLocal
-from app.devices.schemas import DeviceCreate
+from app.devices.schemas import DeviceIotReadingUpdate
 
-# Ajusta el puerto según corresponda, por ejemplo "COM4" o '/dev/ttyACM0'
-SERIAL_PORT = "COM4"  # Cambia esto al puerto correcto
+SERIAL_PORT = "COM4" 
 BAUD_RATE = 9600
 
 def read_serial_data():
@@ -25,21 +23,33 @@ def read_serial_data():
             if line:
                 print("Dato recibido:", line)
                 try:
-                    sensor_value = int(line)
-                except ValueError:
-                    sensor_value = 0  # Maneja el error según tu lógica
+                    # Parsear el JSON enviado por Arduino
+                    data = json.loads(line)
+                except Exception as parse_e:
+                    print("Error al parsear JSON:", parse_e)
+                    data = {}
 
-                db = SessionLocal()
+                # Se espera que el JSON tenga device_type_id y sensor_value
                 try:
-                    service = DeviceService(db)
-                    device_payload = DeviceCreate(sensor_value=sensor_value)
-                    service.create_device_data(device_payload)
-                    db.commit()
-                except Exception as db_e:
-                    print(f"Error al insertar en la BD: {db_e}")
-                finally:
-                    db.close()
+                    sensor_data = DeviceIotReadingUpdate(**data)
+                except Exception as val_e:
+                    print(f"Error de validación: {val_e}")
+                    sensor_data = None
+
+                if sensor_data:
+                    db = SessionLocal()
+                    try:
+                        service = DeviceService(db)
+                        service.update_device_reading(sensor_data)
+                        db.commit()
+                    except Exception as db_e:
+                        print(f"Error al insertar en la BD: {db_e}")
+                    finally:
+                        db.close()
         except Exception as e:
             print("Error en la lectura del puerto serial:", e)
         
         time.sleep(0.5)
+        
+if __name__ == '__main__':
+    read_serial_data()

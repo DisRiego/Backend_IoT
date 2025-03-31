@@ -83,3 +83,12 @@ class DeviceFilter(BaseModel):
     devices_id: Optional[int] = None  # Tipo de dispositivo
     installed_before: Optional[datetime] = None
     installed_after: Optional[datetime] = None
+    
+
+        
+class DeviceIotReadingUpdate(BaseModel):
+    device_id: int
+    sensor_value: int
+
+    class Config:
+        orm_mode = True
