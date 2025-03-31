@@ -1,7 +1,8 @@
+
 from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Float, Date
 from sqlalchemy.orm import relationship
 from app.database import Base
-
+from app.devices_request.models import Vars
 # =======================================================
 # Modelos para la configuración y operación de dispositivos
 # =======================================================
@@ -72,18 +73,15 @@ class DeviceIot(Base):
     status = Column(Integer, ForeignKey("vars.id"), nullable=True)
     devices_id = Column(Integer, ForeignKey("devices.id"), nullable=True)
     price_device = Column(JSON, nullable=True)
-    
+
     # Relaciones con otros modelos
     lot = relationship("Lot")
     maintenance_interval = relationship("MaintenanceInterval")
     status_var = relationship("Vars", foreign_keys=[status])
-    # Relación inversa con Device (configuración general)
+
     device = relationship("Device", back_populates="device_iot")
 
 
-# =======================================================
-# Modelos de otros microservicios
-# =======================================================
 
 class Lot(Base):
     """
@@ -113,16 +111,7 @@ class Lot(Base):
         return f"<Lot(id={self.id}, name={self.name}, state={self.state})>"
 
 
-class Vars(Base):
-    """
-    Modelo para la tabla vars, que se utiliza para estados u otros valores.
-    """
-    __tablename__ = 'vars'
-    
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String)
-    # Si tienes una relación con Role, agrégala según tu modelo.
-    # role = relationship('Role', back_populates='vars')
+
 
 
 class MaintenanceInterval(Base):
@@ -160,3 +149,4 @@ class PropertyLot(Base):
 
     property_id = Column(Integer, ForeignKey('property.id'), primary_key=True)
     lot_id = Column(Integer, ForeignKey('lot.id'), primary_key=True)
+
