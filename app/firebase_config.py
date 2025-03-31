@@ -1,35 +1,27 @@
-import json
 import os
 import firebase_admin
 from firebase_admin import credentials, storage
 from dotenv import load_dotenv
 
+
 load_dotenv()
 
-raw = os.getenv("FIREBASE_CREDENTIALS")
-if not raw:
-    raise ValueError("FIREBASE_CREDENTIALS no está definido en .env o está vacío.")
 
-# Eliminar comillas externas si existen
-raw = raw.strip()
-if (raw.startswith("'") and raw.endswith("'")) or (raw.startswith('"') and raw.endswith('"')):
-    raw = raw[1:-1]
+FIREBASE_CREDENTIALS = os.getenv("FIREBASE_CREDENTIALS")
+FIREBASE_STORAGE_BUCKET = os.getenv("FIREBASE_STORAGE_BUCKET")
 
-# Decodificar caracteres escapados
-unescaped = raw.encode('utf-8').decode('unicode_escape')
-firebase_credentials = json.loads(unescaped)
+if not FIREBASE_CREDENTIALS:
+    raise ValueError("❌ ERROR: FIREBASE_CREDENTIALS no está definido en .env")
 
-# Asegurarse de que la clave privada tenga saltos de línea correctos
-firebase_credentials["private_key"] = firebase_credentials["private_key"].replace("\\n", "\n").strip()
+if not os.path.exists(FIREBASE_CREDENTIALS):
+    raise ValueError(f"❌ ERROR: El archivo de credenciales en {FIREBASE_CREDENTIALS} no existe.")
 
-storage_bucket = os.getenv("FIREBASE_STORAGE_BUCKET")
-if not storage_bucket:
-    raise ValueError("FIREBASE_STORAGE_BUCKET no está definido en .env o está vacío.")
-storage_bucket = storage_bucket.strip()
+if not FIREBASE_STORAGE_BUCKET:
+    raise ValueError("❌ ERROR: FIREBASE_STORAGE_BUCKET no está definido en .env")
 
-# Inicializar Firebase solo una vez
-if not firebase_admin._apps:
-    cred = credentials.Certificate(firebase_credentials)
-    firebase_admin.initialize_app(cred, {"storageBucket": storage_bucket})
 
+cred = credentials.Certificate(FIREBASE_CREDENTIALS)
+firebase_admin.initialize_app(cred, {"storageBucket": FIREBASE_STORAGE_BUCKET})
 bucket = storage.bucket()
+
+print("✅ Firebase inicializado correctamente.")

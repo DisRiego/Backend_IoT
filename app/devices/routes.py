@@ -69,7 +69,7 @@ def reassign_device_to_lot(
 ):
     """Reasignar un dispositivo a otro lote"""
     device_service = DeviceService(db)
-    return device_service.reassign_to_lot(reassignment_data, current_user.id if current_user else None)
+    return device_service.reassign_to_lot(reassignment_data, None)
 
 @router.delete("/{device_id}", response_model=Dict[str, Any])
 def delete_device(device_id: int, db: Session = Depends(get_db)):
