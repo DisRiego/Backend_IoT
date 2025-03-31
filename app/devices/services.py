@@ -604,7 +604,7 @@ class DeviceService:
         """
         Actualiza la lectura en la tabla device_iot para el dispositivo cuyo id se envíe,
         validando que pertenece al lote indicado.
-        Se guarda en el campo price_device solo la información de la lectura, 
+        Se guarda en el campo data_device solo la información de la lectura,
         excluyendo 'device_id', 'lot_id' y 'device_type_id'.
         """
         try:
@@ -626,12 +626,12 @@ class DeviceService:
             if device.lot_id != lot_id:
                 device.lot_id = lot_id
 
-            # Eliminar las claves que no queremos almacenar en price_device
+            # Eliminar las claves que no queremos almacenar en data_device
             for key in ["device_id", "lot_id", "device_type_id"]:
                 data.pop(key, None)
                 
             # Ahora 'data' contiene solo la información de la lectura
-            device.price_device = data
+            device.data_device = data  # Guardamos las lecturas del Arduino en data_device
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(

@@ -108,6 +108,7 @@ class DeviceIotReadingUpdateByLot(BaseModel):
     class Config:
         orm_mode = True
         extra = "allow"  
+ 
 
 class DeviceCategoryResponse(BaseModel):
     """Esquema para la respuesta de dispositivos por categoría"""
