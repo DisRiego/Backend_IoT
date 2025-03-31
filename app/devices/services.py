@@ -692,3 +692,28 @@ class DeviceService:
                     }
                 }
             )
+
+
+    def get_device_types(self) -> List[dict]:
+        """
+        Obtener tipos de dispositivos con sus propiedades
+        """
+        try:
+            Devices = (
+                self.db.query(Device)
+                .join(DeviceType)
+                .all()
+            )
+            # Para cada tipo, solo retornar lo que se necesita
+            result = []
+            for d in Devices:
+                result.append({
+                    "id": d.id,  # <-- ID de la tabla `devices`
+                    "name": d.device_type.name,  # nombre del tipo (válvula, batería, etc.)
+                    "properties": d.properties  # plantilla para construir formulario
+                })
+            
+            return result
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error al obtener los tipos de dispositivos: {str(e)}")

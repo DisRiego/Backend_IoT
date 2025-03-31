@@ -29,6 +29,11 @@ def get_devices_by_category(category_id: int, db: Session = Depends(get_db)):
     device_service = DeviceService(db)
     return device_service.get_devices_by_category(category_id)
 
+@router.get("/device_types_with_readings", response_model=List[dict])
+def get_device_types_with_readings(db: Session = Depends(get_db)):
+    """Obtener tipos de dispositivos con sus propiedades (en JSON) y lecturas de sensores"""
+    device_service = DeviceService(db)
+    return device_service.get_device_types()
 
 
 @router.get("/{device_id}", response_model=Dict[str, Any])
