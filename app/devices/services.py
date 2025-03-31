@@ -710,36 +710,26 @@ class DeviceService:
 
 
 
-    def get_device_types_with_readings(self) -> List[dict]:
+    def get_device_types(self) -> List[dict]:
         """
-        Obtener tipos de dispositivos con sus propiedades (en formato JSON), entradas y lecturas de sensores.
+        Obtener tipos de dispositivos con sus propiedades
         """
         try:
-            # Consulta los tipos de dispositivos junto con sus entradas (propiedades) y lecturas de sensor
-            devices = (
-                self.db.query(DeviceType, Device, DeviceIot)  # Consultamos DeviceType, Device y DeviceIot
-                .join(Device, DeviceType.id == Device.devices_type_id)  # Relación con Device (por tipo)
-                .join(DeviceIot, Device.id == DeviceIot.devices_id)  # Relación con DeviceIot (para lecturas)
+            Devices = (
+                self.db.query(Device)
+                .join(DeviceType)
                 .all()
             )
-
+            # Para cada tipo, solo retornar lo que se necesita
             result = []
-
-            # Para cada tipo de dispositivo, obtenemos la información relevante
-            for device_type, device, device_iot in devices:
-                # Accedemos a las propiedades almacenadas en el campo JSON 'properties' de Device
-                properties = device.properties if device.properties else {}
-
+            for d in Devices:
                 result.append({
-                    "device_type_name": device_type.name,  # Nombre del tipo de dispositivo (válvula, batería, etc.)
-                    "device_type_id": device_type.id,  # ID del tipo de dispositivo
-                    "properties": properties,  # Las propiedades del dispositivo (accedidas desde el campo properties)
-                    "data_device": device_iot.data_device,  # Lecturas del sensor en data_device
-                    "device_id": device.id,  # ID del dispositivo
-                    "device_model": device.model if device.model else "No disponible"  # Verificar que 'model' esté presente
+                    "id": d.id,  # <-- ID de la tabla `devices`
+                    "name": d.device_type.name,  # nombre del tipo (válvula, batería, etc.)
+                    "properties": d.properties  # plantilla para construir formulario
                 })
-
+            
             return result
-
+            
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error al obtener los tipos de dispositivos: {str(e)}")
