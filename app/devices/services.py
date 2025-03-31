@@ -22,7 +22,7 @@ from app.devices.schemas import (
     DeviceUpdate,
     DeviceAssignRequest,
     DeviceReassignRequest,
-    DeviceIotReadingUpdate
+    DeviceIotReadingUpdateByLot
 )
 
 class DeviceService:
@@ -569,10 +569,10 @@ class DeviceService:
             raise Exception(f"Error al insertar datos: {str(e)}")
         
 
-    def update_device_reading(self, reading: DeviceIotReadingUpdate) -> Dict[str, Any]:
+    def update_device_reading_by_lot(self, reading: DeviceIotReadingUpdateByLot) -> Dict[str, Any]:
         """
-        Actualiza la lectura del sensor en un dispositivo existente (tabla device_iot)
-        basándose en el device_id recibido.
+        Actualiza la lectura del sensor de un dispositivo operativo (device_iot)
+        basándose en el device_id y validando que el dispositivo pertenece al lote indicado.
         """
         try:
             device = self.db.query(DeviceIot).filter(DeviceIot.id == reading.device_id).first()
@@ -581,7 +581,19 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Dispositivo no encontrado"}
                 )
-            # Actualizamos el campo price_device con el nuevo sensor_value.
+            # Validar que el dispositivo registrado pertenezca al lote especificado
+            if device.lot_id != reading.lot_id:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Error de validación",
+                            "message": "El dispositivo no pertenece al lote indicado"
+                        }
+                    }
+                )
+            # Actualizar el campo price_device con la nueva lectura
             device.price_device = {"sensor_value": reading.sensor_value}
             self.db.commit()
             self.db.refresh(device)

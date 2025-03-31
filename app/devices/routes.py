@@ -12,7 +12,7 @@ from app.devices.schemas import (
     DeviceAssignRequest,
     DeviceStatusChange,
     DeviceFilter,
-    DeviceIotReadingUpdate
+    DeviceIotReadingUpdateByLot
 )
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
@@ -210,13 +210,14 @@ def device_options(device_id: int, db: Session = Depends(get_db)):
         }
         
 
-@router.post("/sensor_update", response_model=Dict[str, Any])
-def update_sensor_reading(reading: DeviceIotReadingUpdate, db: Session = Depends(get_db)):
+@router.post("/sensor_update_by_lot", response_model=Dict[str, Any])
+def update_sensor_data_by_lot(data: dict, db: Session = Depends(get_db)):
     """
-    Actualiza la lectura del sensor de un dispositivo existente en device_iot.
-    Se espera un JSON con:
-      - device_id: El id del dispositivo (device_iot) a actualizar.
-      - sensor_value: La nueva lectura del sensor.
+    Recibe el JSON del Arduino y actualiza el registro operativo en device_iot.
+    Se espera un JSON con, al menos:
+      - device_id: ID del dispositivo operativo
+      - lot_id: ID del lote
+      - (otros campos que se guardarán en price_device)
     """
     device_service = DeviceService(db)
-    return device_service.update_device_reading(reading)
+    return device_service.update_device_reading_by_lot(data)

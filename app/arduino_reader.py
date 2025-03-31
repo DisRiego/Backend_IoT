@@ -4,7 +4,7 @@ import time
 import json
 from app.devices.services import DeviceService  
 from app.database import SessionLocal
-from app.devices.schemas import DeviceIotReadingUpdate
+from app.devices.schemas import DeviceIotReadingUpdateByLot
 
 SERIAL_PORT = "COM4" 
 BAUD_RATE = 9600
@@ -31,7 +31,7 @@ def read_serial_data():
 
                 # Se espera que el JSON tenga device_type_id y sensor_value
                 try:
-                    sensor_data = DeviceIotReadingUpdate(**data)
+                    sensor_data = DeviceIotReadingUpdateByLot(**data)
                 except Exception as val_e:
                     print(f"Error de validación: {val_e}")
                     sensor_data = None
