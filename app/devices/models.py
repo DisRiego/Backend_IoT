@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey
+from sqlalchemy import Column, Date, Float, Integer, String, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -17,7 +17,7 @@ class Device(Base):
     price_device = Column(JSON, nullable=True)
     
     # Relaciones
-    lot = relationship("Lot")
-    maintenance_interval = relationship("MaintenanceInterval")
-    status_var = relationship("Vars", foreign_keys=[status])
-    device_type = relationship("Devices", foreign_keys=[devices_id])
+    # lot = relationship("Lot", back_populates="devices")  # Asegúrate de que la relación inversa esté definida en Lot
+    # maintenance_interval = relationship("MaintenanceInterval", back_populates="devices")
+    # status_var = relationship("Vars", foreign_keys=[status], back_populates="devices")
+    # device_type = relationship("Devices", foreign_keys=[devices_id], back_populates="devices")
