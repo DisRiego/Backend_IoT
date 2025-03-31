@@ -126,9 +126,6 @@ class MaintenanceInterval(Base):
 
 
 class Property(Base):
-    """
-    Modelo para la tabla property, que almacena la información de una propiedad (predio).
-    """
     __tablename__ = 'property'
 
     id = Column(Integer, primary_key=True, index=True)
@@ -141,8 +138,8 @@ class Property(Base):
     freedom_tradition_certificate = Column(String, nullable=True)
     state = Column("State", Integer, ForeignKey("vars.id"), default=16, nullable=False)
 
-    def __repr__(self):
-        return f"<Property(id={self.id}, name={self.name}, state={self.state})>"
+    # Relación con PropertyUser para acceder al propietario del predio
+    property_users = relationship("PropertyUser", back_populates="property")
 
 class PropertyLot(Base):
     __tablename__ = 'property_lot'
@@ -150,3 +147,25 @@ class PropertyLot(Base):
     property_id = Column(Integer, ForeignKey('property.id'), primary_key=True)
     lot_id = Column(Integer, ForeignKey('lot.id'), primary_key=True)
 
+
+class PropertyUser(Base):
+    __tablename__ = 'user_property'
+
+    property_id = Column(Integer, ForeignKey('property.id'), primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), primary_key=True)
+
+    # Relación con Property
+    property = relationship("Property", back_populates="property_users")
+    # Relación con User
+    user = relationship("User", back_populates="property_users")
+
+
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    document_number = Column(String, nullable=False)  # Número de documento
+
+    # Relación con PropertyUser
+    property_users = relationship("PropertyUser", back_populates="user")

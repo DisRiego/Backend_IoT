@@ -23,6 +23,14 @@ def get_all_devices(db: Session = Depends(get_db)):
     device_service = DeviceService(db)
     return device_service.get_all_devices()
 
+@router.get("/category/{category_id}", response_model=Dict[str, Any])
+def get_devices_by_category(category_id: int, db: Session = Depends(get_db)):
+    """Obtener dispositivos por categoría, junto con la información del lote, predio y propietario"""
+    device_service = DeviceService(db)
+    return device_service.get_devices_by_category(category_id)
+
+
+
 @router.get("/{device_id}", response_model=Dict[str, Any])
 def get_device_by_id(device_id: int, db: Session = Depends(get_db)):
     """Obtener detalles de un dispositivo específico"""
@@ -221,3 +229,4 @@ def update_sensor_data_by_lot(data: dict, db: Session = Depends(get_db)):
     """
     device_service = DeviceService(db)
     return device_service.update_device_reading_by_lot(data)
+

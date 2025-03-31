@@ -14,7 +14,10 @@ from app.devices.models import (
     Lot,
     MaintenanceInterval,
     PropertyLot,
-    DeviceType
+    DeviceType,
+    Property,
+    PropertyUser,
+    User
 )
 
 from app.devices.schemas import (
@@ -615,3 +618,49 @@ class DeviceService:
             )
 
 
+    def get_devices_by_category(self, category_id: int) -> Dict[str, Any]:
+        """Obtener dispositivos por categoría con información del lote, predio, y propietario"""
+        try:
+            # Consulta para obtener los dispositivos de la categoría con sus relaciones
+            devices = (
+                self.db.query(DeviceIot, DeviceType, Lot, Property, PropertyUser, User, Vars)
+                .join(DeviceType, DeviceIot.devices_id == DeviceType.id)
+                .join(Lot, DeviceIot.lot_id == Lot.id)
+                .join(PropertyLot, Lot.id == PropertyLot.lot_id)
+                .join(Property, PropertyLot.property_id == Property.id)
+                .join(PropertyUser, Property.id == PropertyUser.property_id)  # Relación con PropertyUser
+                .join(User, PropertyUser.user_id == User.id)  # Relación con User para obtener el documento
+                .join(Vars, Property.state == Vars.id)
+                .filter(DeviceType.device_category_id == category_id)
+                .all()
+            )
+
+            devices_list = []
+            for device, device_type, lot, property_data, property_user, user, state in devices:
+                device_data = jsonable_encoder(device)
+                device_data["device_type_name"] = device_type.name
+                device_data["category_name"] = device_type.device_category.name  # Nombre de la categoría
+                device_data["lot_id"] = lot.id
+                device_data["lot_name"] = lot.name
+                device_data["property_id"] = property_data.id
+                device_data["real_estate_registration_number"] = property_data.real_estate_registration_number
+                device_data["owner_document_number"] = user.document_number  # Número de documento del propietario
+                device_data["property_state"] = state.name
+
+                devices_list.append(device_data)
+
+            return JSONResponse(
+                status_code=200,
+                content={"success": True, "data": devices_list}
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "data": {
+                        "title": "Error al obtener dispositivos por categoría",
+                        "message": f"Error: {str(e)}"
+                    }
+                }
+            )

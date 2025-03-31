@@ -95,3 +95,20 @@ class DeviceIotReadingUpdateByLot(BaseModel):
     class Config:
         orm_mode = True
         extra = "allow"  
+
+class DeviceCategoryResponse(BaseModel):
+    """Esquema para la respuesta de dispositivos por categoría"""
+    device_id: int
+    serial_number: Optional[int] = None
+    model: Optional[str] = None
+    lot_id: Optional[int] = None
+    lot_name: Optional[str] = None
+    property_id: Optional[int] = None
+    real_estate_registration_number: Optional[int] = None
+    owner_document_number: Optional[str] = None  # Número de documento del propietario
+    device_type_name: Optional[str] = None
+    category_name: Optional[str] = None  # Nombre de la categoría
+
+    class Config:
+        orm_mode = True
+
