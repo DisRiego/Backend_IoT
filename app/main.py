@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from app.database import Base, engine
 from app.devices.routes import router as devices_router
+from app.devices_request.routes import router as devices_request_router
 from app.middlewares import setup_middlewares
 from app.exceptions import setup_exception_handlers
 
@@ -19,6 +20,7 @@ setup_exception_handlers(app)
 
 # **Registrar Rutas**
 app.include_router(devices_router)
+app.include_router(devices_request_router)
 
 Base.metadata.create_all(bind=engine)
 
