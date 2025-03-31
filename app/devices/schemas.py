@@ -10,7 +10,7 @@ class DeviceBase(BaseModel):
     installation_date: Optional[datetime] = None
     maintenance_interval_id: Optional[int] = None
     estimated_maintenance_date: Optional[datetime] = None
-    status: Optional[int] = None
+    status: Optional[int] = 15
     devices_id: Optional[int] = None
     price_device: Optional[Dict[str, Any]] = None
 
