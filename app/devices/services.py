@@ -17,7 +17,8 @@ from app.devices.models import (
     DeviceType,
     Property,
     PropertyUser,
-    User
+    User,
+    DeviceCategories
 )
 
 from app.devices.schemas import (
@@ -646,52 +647,65 @@ class DeviceService:
             )
 
 
-    def get_devices_by_category(self, category_id: int) -> Dict[str, Any]:
-        """Obtener dispositivos por categoría con información del lote, predio, y propietario"""
-        try:
-            # Consulta para obtener los dispositivos de la categoría con sus relaciones
-            devices = (
-                self.db.query(DeviceIot, DeviceType, Lot, Property, PropertyUser, User, Vars)
-                .join(DeviceType, DeviceIot.devices_id == DeviceType.id)
-                .join(Lot, DeviceIot.lot_id == Lot.id)
-                .join(PropertyLot, Lot.id == PropertyLot.lot_id)
-                .join(Property, PropertyLot.property_id == Property.id)
-                .join(PropertyUser, Property.id == PropertyUser.property_id)  # Relación con PropertyUser
-                .join(User, PropertyUser.user_id == User.id)  # Relación con User para obtener el documento
-                .join(Vars, Property.state == Vars.id)
-                .filter(DeviceType.device_category_id == category_id)
-                .all()
-            )
+    def get_all_devices(self) -> Dict[str, Any]:
+            """Obtener todos los dispositivos con información operativa (estado, lote, propiedad y categoría)"""
+            try:
+                devices = (
+                    self.db.query(
+                        DeviceIot,
+                        DeviceType,
+                        Device,
+                        Lot,
+                        Property,
+                        PropertyUser,
+                        User,
+                        Vars,
+                        DeviceCategories  
+                    )
+                    .join(DeviceType, DeviceIot.devices_id == DeviceType.id)
+                    .join(Device, DeviceIot.devices_id == Device.id)  # Relación con Device
+                    .join(Lot, DeviceIot.lot_id == Lot.id)
+                    .join(PropertyLot, Lot.id == PropertyLot.lot_id)
+                    .join(Property, PropertyLot.property_id == Property.id)
+                    .join(PropertyUser, Property.id == PropertyUser.property_id)
+                    .join(User, PropertyUser.user_id == User.id)
+                    .join(Vars, DeviceIot.status == Vars.id)  # Relación con Vars para obtener el estado del dispositivo
+                    .join(DeviceCategories, DeviceType.device_category_id == DeviceCategories.id)  # Relación con DeviceCategory
+                    .all()
+                )
 
-            devices_list = []
-            for device, device_type, lot, property_data, property_user, user, state in devices:
-                device_data = jsonable_encoder(device)
-                device_data["device_type_name"] = device_type.name
-                device_data["category_name"] = device_type.device_category.name  # Nombre de la categoría
-                device_data["lot_id"] = lot.id
-                device_data["lot_name"] = lot.name
-                device_data["property_id"] = property_data.id
-                device_data["real_estate_registration_number"] = property_data.real_estate_registration_number
-                device_data["owner_document_number"] = user.document_number  # Número de documento del propietario
-                device_data["property_state"] = state.name
+                devices_list = []
+                for device, device_type, device_details, lot, property_data, property_user, user, state, category in devices:
+                    device_data = jsonable_encoder(device)
 
-                devices_list.append(device_data)
+                    device_data["device_type_name"] = device_type.name  # Nombre del tipo de dispositivo
+                    device_data["device_category_name"] = category.name  # Nombre de la categoría del dispositivo
+                    device_data["owner_document_number"] = user.document_number  # Número de documento del propietario
+                    device_data["lot_id"] = lot.id  # ID del lote
+                    device_data["lot_name"] = lot.name  # Nombre del lote
+                    device_data["property_id"] = property_data.id  # ID del predio
+                    device_data["real_estate_registration_number"] = property_data.real_estate_registration_number
+                    device_data["property_state"] = state.name  # Nombre del estado del predio
+                    device_data["device_status_name"] = state.name  # Nombre del estado del dispositivo
 
-            return JSONResponse(
-                status_code=200,
-                content={"success": True, "data": devices_list}
-            )
-        except Exception as e:
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False,
-                    "data": {
-                        "title": "Error al obtener dispositivos por categoría",
-                        "message": f"Error: {str(e)}"
+                    devices_list.append(device_data)
+
+                return JSONResponse(
+                    status_code=200,
+                    content={"success": True, "data": devices_list}
+                )
+
+            except Exception as e:
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Error al obtener los dispositivos",
+                            "message": f"Error: {str(e)}"
+                        }
                     }
-                }
-            )
+                )
 
 
     def get_device_types(self) -> List[dict]:
