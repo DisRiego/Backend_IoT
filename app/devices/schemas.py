@@ -82,7 +82,6 @@ class DeviceIOTBase(BaseModel):
     serial_number: int
     model: str
     lot_id: int
-    user_id: int
     installation_date: Optional[datetime]
     maintenance_interval_id: Optional[int]
     estimated_maintenance_date: Optional[datetime]
@@ -108,6 +107,15 @@ class DeviceIOTResponse(DeviceIOTBase):
 
     class Config:
         orm_mode = True
+        
+class DeviceIOTResponses(DeviceIOTBase):
+    """
+    Representación completa de un dispositivo IoT para respuesta.
+    """
+    id: int
+
+    class Config:
+        orm_mode = True
 
 class DeviceCreateResponse(BaseModel):
     """
@@ -115,4 +123,4 @@ class DeviceCreateResponse(BaseModel):
     """
     status: str
     message: str
-    data: DeviceIOTResponse
+    data: DeviceIOTResponses

@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from app.devices.models import Device, DeviceType, DeviceCategory, DeviceIOT, User
+from app.devices.models import Device, DeviceType, DeviceCategory, DeviceIOT, Lot, Property, PropertyLot, User, UserProperty
 from app.devices.schemas import DeviceIOTCreate
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List, Optional
@@ -68,16 +68,19 @@ class DeviceService:
     def get_device_iot(self, category_name: Optional[str] = None) -> List[dict]:
         """
         Obtener dispositivos IoT registrados, con opción de filtrar por categoría.
-
-        Si no se proporciona `category_name`, se devuelven todos los dispositivos.
+        Incluye nombre del tipo de dispositivo y número de documento del usuario.
         """
         try:
             query = (
                 self.db.query(DeviceIOT)
+                .join(DeviceIOT.lot)
+                .join(Lot.property_lots)
+                .join(PropertyLot.property)
+                .join(Property.users)
+                .join(UserProperty.user)
                 .join(Device)
                 .join(DeviceType)
                 .join(DeviceCategory)
-                .join(User)
             )
 
             if category_name:
@@ -87,20 +90,27 @@ class DeviceService:
 
             result = []
             for d in devices:
+                # ⚠️ Extraemos el primer usuario asociado al predio
+                user_property = (
+                    d.lot.property_lots[0].property.users[0]
+                    if d.lot.property_lots and d.lot.property_lots[0].property.users
+                    else None
+                )
+                document_number = user_property.user.document_number if user_property else None
+
                 result.append({
                     "id": d.id,
                     "serial_number": d.serial_number,
-                    "device_type": d.device_template.device_type.name,
                     "model": d.model,
                     "lot_id": d.lot_id,
-                    "user_id": d.user_id,
                     "installation_date": d.installation_date,
                     "maintenance_interval_id": d.maintenance_interval_id,
                     "estimated_maintenance_date": d.estimated_maintenance_date,
                     "status": d.status,
                     "devices_id": d.devices_id,
                     "price_device": d.price_device,
-                    "document_number": d.user.document_number if d.user else None
+                    "device_type": d.device_template.device_type.name,
+                    "document_number": document_number
                 })
 
             return result
