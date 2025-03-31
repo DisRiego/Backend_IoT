@@ -1,6 +1,6 @@
 
 from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Float, Date
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship , validates
 from app.database import Base
 from app.devices_request.models import Vars
 # =======================================================
@@ -80,6 +80,16 @@ class DeviceIot(Base):
     status_var = relationship("Vars", foreign_keys=[status])
 
     device = relationship("Device", back_populates="device_iot")
+
+    # Validación del estado del dispositivo
+    @validates('status')
+    def validate_status(self, key, value):
+        """Validar que el estado del dispositivo sea uno de los valores válidos para 'device_status'"""
+        valid_device_status_ids = [11, 12, 13, 14, 15]  # Los valores válidos para device_status
+
+        if value not in valid_device_status_ids:
+            raise ValueError(f"El estado {value} no es válido para un dispositivo. Los valores válidos son: {valid_device_status_ids}")
+        return value
 
 
 
