@@ -33,24 +33,41 @@ class DeviceService:
         self.db = db
 
     def get_all_devices(self) -> Dict[str, Any]:
-        """Obtener todos los dispositivos con información operativa (estado y lote)"""
+        """Obtener todos los dispositivos con información operativa (estado, lote, y propiedad)"""
         try:
             devices = (
                 self.db.query(
                     DeviceIot,
-                    Vars.name.label("status_name"),
-                    Lot.name.label("lot_name")
+                    DeviceType,
+                    Lot,
+                    Property,
+                    PropertyUser,
+                    User,
+                    Vars
                 )
-                .outerjoin(Vars, DeviceIot.status == Vars.id)
-                .outerjoin(Lot, DeviceIot.lot_id == Lot.id)
+                .join(DeviceType, DeviceIot.devices_id == DeviceType.id)
+                .join(Lot, DeviceIot.lot_id == Lot.id)
+                .join(PropertyLot, Lot.id == PropertyLot.lot_id)
+                .join(Property, PropertyLot.property_id == Property.id)
+                .join(PropertyUser, Property.id == PropertyUser.property_id)
+                .join(User, PropertyUser.user_id == User.id)
+                .join(Vars, Property.state == Vars.id)
                 .all()
             )
+
             devices_list = []
-            for device, status_name, lot_name in devices:
-                device_dict = jsonable_encoder(device)
-                device_dict["status_name"] = status_name
-                device_dict["lot_name"] = lot_name
-                devices_list.append(device_dict)
+            for device, device_type, lot, property_data, property_user, user, state in devices:
+                device_data = jsonable_encoder(device)
+                device_data["device_type_name"] = device_type.name  # Nombre del tipo de dispositivo
+                device_data["owner_document_number"] = user.document_number  # Número de documento del propietario
+                device_data["lot_id"] = lot.id  # ID del lote
+                device_data["lot_name"] = lot.name
+                device_data["property_id"] = property_data.id  # ID del predio
+                device_data["real_estate_registration_number"] = property_data.real_estate_registration_number
+                device_data["property_state"] = state.name
+
+                devices_list.append(device_data)
+
             return JSONResponse(
                 status_code=200,
                 content={"success": True, "data": devices_list}
@@ -68,35 +85,45 @@ class DeviceService:
             )
 
     def get_device_by_id(self, device_id: int) -> Dict[str, Any]:
-        """Obtener detalles de un dispositivo específico"""
+        """Obtener detalles de un dispositivo específico con el ID del predio al que pertenece"""
         try:
             result = (
                 self.db.query(
                     DeviceIot,
-                    Vars.name.label("status_name"),
-                    Lot.name.label("lot_name")
+                    DeviceType,
+                    Lot,
+                    Property,
+                    PropertyUser,
+                    User,
+                    Vars
                 )
-                .outerjoin(Vars, DeviceIot.status == Vars.id)
-                .outerjoin(Lot, DeviceIot.lot_id == Lot.id)
+                .join(DeviceType, DeviceIot.devices_id == DeviceType.id)
+                .join(Lot, DeviceIot.lot_id == Lot.id)
+                .join(PropertyLot, Lot.id == PropertyLot.lot_id)
+                .join(Property, PropertyLot.property_id == Property.id)
+                .join(PropertyUser, Property.id == PropertyUser.property_id)
+                .join(User, PropertyUser.user_id == User.id)
+                .join(Vars, Property.state == Vars.id)
                 .filter(DeviceIot.id == device_id)
                 .first()
             )
+
             if not result:
                 return JSONResponse(
                     status_code=404,
                     content={"success": False, "data": "Dispositivo no encontrado"}
                 )
-            device, status_name, lot_name = result
-            device_data = jsonable_encoder(device)
-            device_data["status_name"] = status_name
-            device_data["lot_name"] = lot_name
 
-            # Obtener información del tipo de dispositivo (configuración)
-            if device.devices_id:
-                # Importar Device desde app.devices.models ya se hizo arriba
-                device_type = self.db.query(Device).filter(Device.id == device.devices_id).first()
-                if device_type and device_type.device_type:
-                    device_data["device_type_name"] = device_type.device_type.name
+            device, device_type, lot, property_data, property_user, user, state = result
+            device_data = jsonable_encoder(device)
+            device_data["device_type_name"] = device_type.name  # Nombre del tipo de dispositivo
+            device_data["owner_document_number"] = user.document_number  # Número de documento del propietario
+            device_data["lot_id"] = lot.id  # ID del lote
+            device_data["lot_name"] = lot.name
+            device_data["property_id"] = property_data.id  # ID del predio
+            device_data["real_estate_registration_number"] = property_data.real_estate_registration_number
+            device_data["property_state"] = state.name
+
             return JSONResponse(
                 status_code=200,
                 content={"success": True, "data": device_data}
@@ -112,6 +139,7 @@ class DeviceService:
                     }
                 }
             )
+
 
     def create_device(self, device_data: DeviceCreate) -> Dict[str, Any]:
         """Crear un nuevo dispositivo operativo (en device_iot)"""

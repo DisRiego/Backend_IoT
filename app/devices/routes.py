@@ -19,7 +19,7 @@ router = APIRouter(prefix="/devices", tags=["Devices"])
 
 @router.get("/", response_model=Dict[str, Any])
 def get_all_devices(db: Session = Depends(get_db)):
-    """Obtener todos los dispositivos"""
+    """Obtener todos los dispositivos con información operativa"""
     device_service = DeviceService(db)
     return device_service.get_all_devices()
 
@@ -33,9 +33,10 @@ def get_devices_by_category(category_id: int, db: Session = Depends(get_db)):
 
 @router.get("/{device_id}", response_model=Dict[str, Any])
 def get_device_by_id(device_id: int, db: Session = Depends(get_db)):
-    """Obtener detalles de un dispositivo específico"""
+    """Obtener detalles de un dispositivo específico con ID del predio"""
     device_service = DeviceService(db)
     return device_service.get_device_by_id(device_id)
+
 
 @router.post("/", response_model=Dict[str, Any])
 def create_device(device: DeviceCreate, db: Session = Depends(get_db)):

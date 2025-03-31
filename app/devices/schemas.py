@@ -33,9 +33,22 @@ class DeviceInDB(DeviceBase):
     class Config:
         orm_mode = True
 
-class DeviceResponse(DeviceInDB):
+class DeviceResponse(BaseModel):
     """Esquema para la respuesta de dispositivos"""
-    pass
+    device_id: int
+    serial_number: Optional[int] = None
+    model: Optional[str] = None
+    device_type_name: Optional[str] = None  # Nombre del tipo de dispositivo
+    owner_document_number: Optional[str] = None  # Número de documento del propietario
+    lot_id: Optional[int] = None
+    lot_name: Optional[str] = None
+    property_id: Optional[int] = None  # ID del predio
+    real_estate_registration_number: Optional[int] = None
+    property_state: Optional[str] = None  # Estado del predio
+
+    class Config:
+        orm_mode = True
+
 
 class DeviceDetail(DeviceResponse):
     """Esquema para detalles completos de un dispositivo, incluyendo información relacionada"""
