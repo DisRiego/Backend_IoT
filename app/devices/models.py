@@ -72,7 +72,8 @@ class DeviceIot(Base):
     estimated_maintenance_date = Column(DateTime, nullable=True)
     status = Column(Integer, ForeignKey("vars.id"), nullable=True)
     devices_id = Column(Integer, ForeignKey("devices.id"), nullable=True)
-    data_device = Column(JSON, nullable=True)  # Usaremos data_device para las lecturas del Arduino
+    price_device = Column(JSON, nullable=True)
+    data_devices = Column(JSON, nullable=True)  # Usaremos data_device para las lecturas del Arduino
 
     # Relaciones con otros modelos
     lot = relationship("Lot")
