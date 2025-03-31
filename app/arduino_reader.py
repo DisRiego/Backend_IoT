@@ -40,7 +40,7 @@ def read_serial_data():
                     db = SessionLocal()
                     try:
                         service = DeviceService(db)
-                        service.update_device_reading(sensor_data)
+                        service.update_device_reading_by_lot(sensor_data)
                         db.commit()
                     except Exception as db_e:
                         print(f"Error al insertar en la BD: {db_e}")

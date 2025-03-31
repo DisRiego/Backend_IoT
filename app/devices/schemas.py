@@ -87,9 +87,11 @@ class DeviceFilter(BaseModel):
 
         
 class DeviceIotReadingUpdateByLot(BaseModel):
-    device_id: int        
-    lot_id: int           
-    sensor_value: int     
+    device_id: int
+    lot_id: int
+    device_type_id: int
+    sensor_value: Optional[int] = None  
 
     class Config:
         orm_mode = True
+        extra = "allow"  

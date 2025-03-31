@@ -571,52 +571,47 @@ class DeviceService:
 
     def update_device_reading_by_lot(self, reading: DeviceIotReadingUpdateByLot) -> Dict[str, Any]:
         """
-        Actualiza la lectura del sensor de un dispositivo operativo (device_iot)
-        basándose en el device_id y validando que el dispositivo pertenece al lote indicado.
+        Actualiza la lectura en la tabla device_iot para el dispositivo cuyo id se envíe,
+        validando que pertenece al lote indicado.
+        Se guarda en el campo price_device solo la información de la lectura, 
+        excluyendo 'device_id', 'lot_id' y 'device_type_id'.
         """
         try:
-            device = self.db.query(DeviceIot).filter(DeviceIot.id == reading.device_id).first()
+            data = reading.dict()
+            device_id = data.get("device_id")
+            lot_id = data.get("lot_id")
+            if device_id is None or lot_id is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"success": False, "data": "Faltan device_id o lot_id"}
+                )
+            device = self.db.query(DeviceIot).filter(DeviceIot.id == device_id).first()
             if not device:
                 return JSONResponse(
                     status_code=404,
                     content={"success": False, "data": "Dispositivo no encontrado"}
                 )
-            # Validar que el dispositivo registrado pertenezca al lote especificado
-            if device.lot_id != reading.lot_id:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "data": {
-                            "title": "Error de validación",
-                            "message": "El dispositivo no pertenece al lote indicado"
-                        }
-                    }
-                )
-            # Actualizar el campo price_device con la nueva lectura
-            device.price_device = {"sensor_value": reading.sensor_value}
+            # Validar que el dispositivo pertenezca al lote indicado
+            if device.lot_id != lot_id:
+                device.lot_id = lot_id
+
+            # Eliminar las claves que no queremos almacenar en price_device
+            for key in ["device_id", "lot_id", "device_type_id"]:
+                data.pop(key, None)
+                
+            # Ahora 'data' contiene solo la información de la lectura
+            device.price_device = data
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(
                 status_code=200,
-                content={
-                    "success": True,
-                    "data": {
-                        "title": "Lectura actualizada",
-                        "message": "La lectura del sensor ha sido actualizada correctamente",
-                        "device": jsonable_encoder(device)
-                    }
-                }
+                content={"success": True, "data": jsonable_encoder(device)}
             )
         except Exception as e:
             self.db.rollback()
             return JSONResponse(
                 status_code=500,
-                content={
-                    "success": False,
-                    "data": {
-                        "title": "Error al actualizar lectura",
-                        "message": f"Error: {str(e)}"
-                    }
-                }
+                content={"success": False, "data": {"title": "Error al actualizar lectura", "message": str(e)}}
             )
+
+
