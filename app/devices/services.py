@@ -718,6 +718,27 @@ class DeviceService:
                 }
             )
 
+    def get_all_maintenance_intervals(self) -> Dict[str, Any]:
+            """Obtener todos los intervalos de mantenimiento"""
+            try:
+                intervals = self.db.query(MaintenanceInterval).all()
+                # Convertir la lista de intervalos a un formato JSON serializable
+                intervals_list = jsonable_encoder(intervals)
+                return JSONResponse(
+                    status_code=200,
+                    content={"success": True, "data": intervals_list}
+                )
+            except Exception as e:
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Error al obtener intervalos de mantenimiento",
+                            "message": f"Error: {str(e)}"
+                        }
+                    }
+                )
 
 
     def get_device_types(self) -> List[dict]:

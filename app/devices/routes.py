@@ -87,6 +87,12 @@ def reassign_device_to_lot(
     return device_service.reassign_to_lot(reassignment_data, None)
 
 
+@router.get("/maintenance_intervals/", response_model=Dict[str, Any])
+def get_all_maintenance_intervals(db: Session = Depends(get_db)):
+    """Obtener todos los intervalos de mantenimiento"""
+    device_service = DeviceService(db)
+    return device_service.get_all_maintenance_intervals()
+
 @router.get("/lot/{lot_id}", response_model=Dict[str, Any])
 def get_devices_by_lot(lot_id: int, db: Session = Depends(get_db)):
     """Obtener todos los dispositivos asignados a un lote específico"""
