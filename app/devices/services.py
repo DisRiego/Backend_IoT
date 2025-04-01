@@ -674,13 +674,13 @@ class DeviceService:
                 self.db.query(DeviceIot, DeviceType, Device, Lot, Property, PropertyUser, User, Vars, DeviceCategories)
                 .join(DeviceType, DeviceIot.devices_id == DeviceType.id)
                 .join(Device, DeviceIot.devices_id == Device.id)  # Relación con Device para acceder a properties
-                .join(Lot, DeviceIot.lot_id == Lot.id)
-                .join(PropertyLot, Lot.id == PropertyLot.lot_id)
-                .join(Property, PropertyLot.property_id == Property.id)
-                .join(PropertyUser, Property.id == PropertyUser.property_id)  # Relación con PropertyUser
-                .join(User, PropertyUser.user_id == User.id)  # Relación con User para obtener el documento
-                .join(Vars, DeviceIot.status == Vars.id)  # Relación con Vars para obtener el estado del dispositivo
-                .join(DeviceCategories, DeviceType.device_category_id == DeviceCategories.id)  # Relación con DeviceCategory
+                .outerjoin(Lot, DeviceIot.lot_id == Lot.id)  # Outer join para incluir dispositivos sin lote asignado
+                .outerjoin(PropertyLot, Lot.id == PropertyLot.lot_id)  # Outer join para propiedad
+                .outerjoin(Property, PropertyLot.property_id == Property.id)  # Outer join para propiedad
+                .outerjoin(PropertyUser, Property.id == PropertyUser.property_id)  # Outer join para propiedad usuario
+                .outerjoin(User, PropertyUser.user_id == User.id)  # Outer join para usuario
+                .outerjoin(Vars, DeviceIot.status == Vars.id)  # Outer join para estado del dispositivo
+                .outerjoin(DeviceCategories, DeviceType.device_category_id == DeviceCategories.id)  # Outer join para categoría
                 .filter(DeviceType.device_category_id == category_id)
                 .all()
             )
@@ -689,16 +689,16 @@ class DeviceService:
             for device, device_type, device_details, lot, property_data, property_user, user, state, category in devices:
                 device_data = jsonable_encoder(device)
 
-                # Agregar información relacionada
-                device_data["device_type_name"] = device_type.name  # Nombre del tipo de dispositivo
-                device_data["category_name"] = category.name  # Nombre de la categoría
-                device_data["device_status_name"] = state.name  # Nombre del estado del dispositivo
-                device_data["lot_id"] = lot.id  # ID del lote
-                device_data["lot_name"] = lot.name  # Nombre del lote
-                device_data["property_id"] = property_data.id  # ID del predio
-                device_data["real_estate_registration_number"] = property_data.real_estate_registration_number
-                device_data["owner_document_number"] = user.document_number  # Número de documento del propietario
-                device_data["property_state"] = state.name  # Nombre del estado del predio
+                # Asignar información a la respuesta
+                device_data["device_type_name"] = device_type.name if device_type else "No asignado"  # Nombre del tipo de dispositivo
+                device_data["category_name"] = category.name if category else "No asignada"  # Nombre de la categoría
+                device_data["device_status_name"] = state.name if state else "No asignado"  # Nombre del estado del dispositivo
+                device_data["lot_id"] = lot.id if lot else None  # ID del lote, si no hay lote, lo asignamos como None
+                device_data["lot_name"] = lot.name if lot else "No asignado"  # Nombre del lote, si no hay lote, asignamos "No asignado"
+                device_data["property_id"] = property_data.id if property_data else None  # ID del predio
+                device_data["real_estate_registration_number"] = property_data.real_estate_registration_number if property_data else "No disponible"
+                device_data["owner_document_number"] = user.document_number if user else "No asignado"  # Número de documento del propietario
+                device_data["property_state"] = state.name if state else "No asignado"  # Nombre del estado del predio
 
                 devices_list.append(device_data)
 
