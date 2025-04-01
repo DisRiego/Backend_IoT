@@ -63,7 +63,7 @@ def update_device_status(
 ):
     """
     Actualizar el estado de un dispositivo (habilitar/inhabilitar)
-    - new_status debe ser el ID correspondiente (por ejemplo, 24 para activo, 25 para inactivo)
+    - new_status debe ser el ID correspondiente , # Los valores válidos para device_status[11, 12, 13, 14, 15, 16]  
     """
     device_service = DeviceService(db)
     return device_service.update_device_status(device_id, new_status)
