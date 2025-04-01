@@ -156,23 +156,27 @@ class DeviceService:
     def create_device(self, device_data: DeviceCreate) -> Dict[str, Any]:
         """Crear un nuevo dispositivo operativo (en device_iot)"""
         try:
-            # Se asume que DeviceCreate contiene los campos operativos:
-            # serial_number, model, devices_id, y sensor_value para price_device.
+            # Convertir los datos del dispositivo en un diccionario
             data = device_data.dict()
+
+            # Crear el nuevo dispositivo en DeviceIot, utilizando el JSON enviado en 'price_device'
             new_device = DeviceIot(
                 serial_number = data.get("serial_number"),
                 model = data.get("model"),
                 devices_id = data.get("devices_id"),
-                price_device = {"sensor_value": data.get("sensor_value")},
+                price_device = data.get("price_device"),  # Aquí almacenamos el JSON que llega desde el frontend
                 lot_id = data.get("lot_id"),
                 installation_date = data.get("installation_date"),
                 maintenance_interval_id = data.get("maintenance_interval_id"),
                 estimated_maintenance_date = data.get("estimated_maintenance_date"),
                 status = data.get("status")
             )
+
+            # Guardar el nuevo dispositivo en la base de datos
             self.db.add(new_device)
             self.db.commit()
             self.db.refresh(new_device)
+
             return JSONResponse(
                 status_code=201,
                 content={
