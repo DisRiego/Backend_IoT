@@ -110,12 +110,12 @@ class DeviceService:
                     Vars
                 )
                 .join(DeviceType, DeviceIot.devices_id == DeviceType.id)
-                .join(Lot, DeviceIot.lot_id == Lot.id)
-                .join(PropertyLot, Lot.id == PropertyLot.lot_id)
-                .join(Property, PropertyLot.property_id == Property.id)
-                .join(PropertyUser, Property.id == PropertyUser.property_id)
-                .join(User, PropertyUser.user_id == User.id)
-                .join(Vars, Property.state == Vars.id)
+                .outerjoin(Lot, DeviceIot.lot_id == Lot.id)  # Outer join para incluir dispositivos sin lote
+                .outerjoin(PropertyLot, Lot.id == PropertyLot.lot_id)  # Outer join para propiedad
+                .outerjoin(Property, PropertyLot.property_id == Property.id)  # Outer join para propiedad
+                .outerjoin(PropertyUser, Property.id == PropertyUser.property_id)  # Outer join para propiedad usuario
+                .outerjoin(User, PropertyUser.user_id == User.id)  # Outer join para usuario
+                .outerjoin(Vars, Property.state == Vars.id)  # Outer join para estado del dispositivo
                 .filter(DeviceIot.id == device_id)
                 .first()
             )
@@ -128,13 +128,16 @@ class DeviceService:
 
             device, device_type, lot, property_data, property_user, user, state = result
             device_data = jsonable_encoder(device)
-            device_data["device_type_name"] = device_type.name  # Nombre del tipo de dispositivo
-            device_data["owner_document_number"] = user.document_number  # Número de documento del propietario
-            device_data["lot_id"] = lot.id  # ID del lote
-            device_data["lot_name"] = lot.name
-            device_data["property_id"] = property_data.id  # ID del predio
-            device_data["real_estate_registration_number"] = property_data.real_estate_registration_number
-            device_data["property_state"] = state.name
+
+            # Asignamos los valores a la respuesta
+            device_data["device_type_name"] = device_type.name if device_type else "No asignado"  # Nombre del tipo de dispositivo
+            device_data["owner_document_number"] = user.document_number if user else "No asignado"  # Número de documento del propietario
+            device_data["lot_id"] = lot.id if lot else None  # ID del lote, si no hay lote, lo asignamos como None
+            device_data["lot_name"] = lot.name if lot else "No asignado"  # Nombre del lote, si no hay lote, asignamos "No asignado"
+            device_data["property_id"] = property_data.id if property_data else None  # ID del predio
+            device_data["real_estate_registration_number"] = property_data.real_estate_registration_number if property_data else "No disponible"
+            device_data["property_state"] = state.name if state else "No asignado"  # Nombre del estado del predio
+            device_data["device_status_name"] = state.name if state else "No asignado"  # Nombre del estado del dispositivo
 
             return JSONResponse(
                 status_code=200,
@@ -151,6 +154,7 @@ class DeviceService:
                     }
                 }
             )
+
 
 
     def create_device(self, device_data: DeviceCreate) -> Dict[str, Any]:
