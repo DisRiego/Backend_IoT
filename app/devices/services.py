@@ -138,6 +138,7 @@ class DeviceService:
             device_data["real_estate_registration_number"] = property_data.real_estate_registration_number if property_data else "No disponible"
             device_data["property_state"] = state.name if state else "No asignado"  # Nombre del estado del predio
             device_data["device_status_name"] = state.name if state else "No asignado"  # Nombre del estado del dispositivo
+            device_data["property_name"] = property_data.name if property_data else "No asignado"  # Nombre del predio
 
             return JSONResponse(
                 status_code=200,
