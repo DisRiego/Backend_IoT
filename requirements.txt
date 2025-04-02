@@ -27,6 +27,7 @@ pydantic_core==2.27.2
 pytest==8.3.5
 pytest-cov==6.0.0
 pytest-html==4.1.1
+pytest-asyncio
 pytest-metadata==3.1.1
 python-dotenv==1.0.1
 python-jose==3.4.0
