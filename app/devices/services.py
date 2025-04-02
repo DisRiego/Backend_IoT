@@ -36,6 +36,11 @@ class DeviceService:
     def get_all_devices(self) -> Dict[str, Any]:
         """Obtener todos los dispositivos con información operativa (estado, lote, propiedad y categoría)"""
         try:
+            from sqlalchemy.orm import aliased
+            # Crear alias para la tabla Vars
+            device_status_alias = aliased(Vars)
+            property_status_alias = aliased(Vars)
+            
             devices = (
                 self.db.query(
                     DeviceIot,
@@ -45,35 +50,37 @@ class DeviceService:
                     Property,
                     PropertyUser,
                     User,
-                    Vars,
-                    DeviceCategories  # Añadimos DeviceCategories para obtener el nombre de la categoría
+                    device_status_alias,    # Estado del dispositivo
+                    property_status_alias,  # Estado del predio
+                    DeviceCategories        # Categoría del dispositivo
                 )
                 .join(DeviceType, DeviceIot.devices_id == DeviceType.id)
                 .join(Device, DeviceIot.devices_id == Device.id)  # Relación con Device
-                .outerjoin(Lot, DeviceIot.lot_id == Lot.id)  # Outer join para incluir dispositivos sin lote asignado
+                .outerjoin(Lot, DeviceIot.lot_id == Lot.id)  # Outer join para dispositivos sin lote
                 .outerjoin(PropertyLot, Lot.id == PropertyLot.lot_id)  # Outer join para propiedad
                 .outerjoin(Property, PropertyLot.property_id == Property.id)  # Outer join para propiedad
                 .outerjoin(PropertyUser, Property.id == PropertyUser.property_id)  # Outer join para propiedad usuario
                 .outerjoin(User, PropertyUser.user_id == User.id)  # Outer join para usuario
-                .outerjoin(Vars, DeviceIot.status == Vars.id)  # Outer join para estado del dispositivo
-                .outerjoin(DeviceCategories, DeviceType.device_category_id == DeviceCategories.id)  # Outer join para categoría
+                .outerjoin(device_status_alias, DeviceIot.status == device_status_alias.id)  # Estado del dispositivo
+                .outerjoin(property_status_alias, Property.state == property_status_alias.id)  # Estado del predio
+                .outerjoin(DeviceCategories, DeviceType.device_category_id == DeviceCategories.id)  # Categoría
                 .all()
             )
 
             devices_list = []
-            for device, device_type, device_details, lot, property_data, property_user, user, state, category in devices:
+            for device, device_type, device_details, lot, property_data, property_user, user, device_status, property_status, category in devices:
                 device_data = jsonable_encoder(device)
 
                 # Asignamos los valores a la respuesta
                 device_data["device_type_name"] = device_type.name  # Nombre del tipo de dispositivo
-                device_data["device_category_name"] = category.name if category else "No asignada"  # Nombre de la categoría del dispositivo
-                device_data["owner_document_number"] = user.document_number if user else "No asignado"  # Número de documento del propietario
-                device_data["lot_id"] = lot.id if lot else None  # ID del lote, si no hay lote, lo asignamos como None
-                device_data["lot_name"] = lot.name if lot else "No asignado"  # Nombre del lote, si no hay lote, asignamos "No asignado"
+                device_data["device_category_name"] = category.name if category else "No asignada"  # Categoría del dispositivo
+                device_data["owner_document_number"] = user.document_number if user else "No asignado"  # Documento del propietario
+                device_data["lot_id"] = lot.id if lot else None  # ID del lote
+                device_data["lot_name"] = lot.name if lot else "No asignado"  # Nombre del lote
                 device_data["property_id"] = property_data.id if property_data else None  # ID del predio
                 device_data["real_estate_registration_number"] = property_data.real_estate_registration_number if property_data else "No disponible"
-                device_data["property_state"] = state.name if state else "No asignado"  # Nombre del estado del predio
-                device_data["device_status_name"] = state.name if state else "No asignado"  # Nombre del estado del dispositivo
+                device_data["property_state"] = property_status.name if property_status else "No asignado"  # Estado del predio
+                device_data["device_status_name"] = device_status.name if device_status else "No asignado"  # Estado del dispositivo
 
                 devices_list.append(device_data)
 
@@ -96,9 +103,15 @@ class DeviceService:
 
 
 
+
     def get_device_by_id(self, device_id: int) -> Dict[str, Any]:
         """Obtener detalles de un dispositivo específico con el ID del predio al que pertenece"""
         try:
+            from sqlalchemy.orm import aliased
+            # Creamos alias para la tabla Vars
+            device_status_alias = aliased(Vars)
+            property_status_alias = aliased(Vars)
+            
             result = (
                 self.db.query(
                     DeviceIot,
@@ -107,15 +120,17 @@ class DeviceService:
                     Property,
                     PropertyUser,
                     User,
-                    Vars
+                    device_status_alias,    # Estado del dispositivo
+                    property_status_alias   # Estado del predio
                 )
                 .join(DeviceType, DeviceIot.devices_id == DeviceType.id)
-                .outerjoin(Lot, DeviceIot.lot_id == Lot.id)  # Outer join para incluir dispositivos sin lote
-                .outerjoin(PropertyLot, Lot.id == PropertyLot.lot_id)  # Outer join para propiedad
+                .outerjoin(Lot, DeviceIot.lot_id == Lot.id)  # Outer join para dispositivos sin lote
+                .outerjoin(PropertyLot, Lot.id == PropertyLot.lot_id)  # Outer join para la relación con propiedad
                 .outerjoin(Property, PropertyLot.property_id == Property.id)  # Outer join para propiedad
-                .outerjoin(PropertyUser, Property.id == PropertyUser.property_id)  # Outer join para propiedad usuario
+                .outerjoin(PropertyUser, Property.id == PropertyUser.property_id)  # Outer join para usuario de la propiedad
                 .outerjoin(User, PropertyUser.user_id == User.id)  # Outer join para usuario
-                .outerjoin(Vars, Property.state == Vars.id)  # Outer join para estado del dispositivo
+                .outerjoin(device_status_alias, DeviceIot.status == device_status_alias.id)  # Estado del dispositivo
+                .outerjoin(property_status_alias, Property.state == property_status_alias.id)  # Estado del predio
                 .filter(DeviceIot.id == device_id)
                 .first()
             )
@@ -126,18 +141,19 @@ class DeviceService:
                     content={"success": False, "data": "Dispositivo no encontrado"}
                 )
 
-            device, device_type, lot, property_data, property_user, user, state = result
+            device, device_type, lot, property_data, property_user, user, device_status, property_status = result
             device_data = jsonable_encoder(device)
 
-            # Asignamos los valores a la respuesta
-            device_data["device_type_name"] = device_type.name if device_type else "No asignado"  # Nombre del tipo de dispositivo
-            device_data["owner_document_number"] = user.document_number if user else "No asignado"  # Número de documento del propietario
-            device_data["lot_id"] = lot.id if lot else None  # ID del lote, si no hay lote, lo asignamos como None
-            device_data["lot_name"] = lot.name if lot else "No asignado"  # Nombre del lote, si no hay lote, asignamos "No asignado"
-            device_data["property_id"] = property_data.id if property_data else None  # ID del predio
+            # Asignamos los valores a la respuesta, diferenciando los estados
+            device_data["device_type_name"] = device_type.name if device_type else "No asignado"
+            device_data["owner_document_number"] = user.document_number if user else "No asignado"
+            device_data["lot_id"] = lot.id if lot else None
+            device_data["lot_name"] = lot.name if lot else "No asignado"
+            device_data["property_id"] = property_data.id if property_data else None
             device_data["real_estate_registration_number"] = property_data.real_estate_registration_number if property_data else "No disponible"
-            device_data["property_state"] = state.name if state else "No asignado"  # Nombre del estado del predio
-            device_data["device_status_name"] = state.name if state else "No asignado"  # Nombre del estado del dispositivo
+            device_data["property_state"] = property_status.name if property_status else "No asignado"
+            device_data["device_status_name"] = device_status.name if device_status else "No asignado"
+            device_data["property_name"] = property_data.name if property_data else "No asignado"
 
             return JSONResponse(
                 status_code=200,
@@ -154,6 +170,7 @@ class DeviceService:
                     }
                 }
             )
+
 
 
 
@@ -364,7 +381,6 @@ class DeviceService:
             device.lot_id = assignment_data.lot_id
             device.installation_date = assignment_data.installation_date
             device.maintenance_interval_id = assignment_data.maintenance_interval_id
-            device.estimated_maintenance_date = assignment_data.installation_date + timedelta(days=maintenance_interval.days)
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(
@@ -446,7 +462,6 @@ class DeviceService:
             device.lot_id = reassignment_data.lot_id
             device.installation_date = reassignment_data.installation_date
             device.maintenance_interval_id = reassignment_data.maintenance_interval_id
-            device.estimated_maintenance_date = reassignment_data.installation_date + timedelta(days=maintenance_interval.days)
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(
