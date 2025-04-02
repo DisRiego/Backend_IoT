@@ -110,4 +110,5 @@ async def test_create_device_without_serial_number(db_session: Session):
     # Intentar crear el dispositivo y verificar que lanza un error 422
     response = client.post("/devices/", json=device_data)
 
+
     assert response.status_code == 422
