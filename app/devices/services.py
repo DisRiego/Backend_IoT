@@ -365,7 +365,6 @@ class DeviceService:
             device.lot_id = assignment_data.lot_id
             device.installation_date = assignment_data.installation_date
             device.maintenance_interval_id = assignment_data.maintenance_interval_id
-            device.estimated_maintenance_date = assignment_data.installation_date + timedelta(days=maintenance_interval.days)
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(
@@ -447,7 +446,6 @@ class DeviceService:
             device.lot_id = reassignment_data.lot_id
             device.installation_date = reassignment_data.installation_date
             device.maintenance_interval_id = reassignment_data.maintenance_interval_id
-            device.estimated_maintenance_date = reassignment_data.installation_date + timedelta(days=maintenance_interval.days)
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(
