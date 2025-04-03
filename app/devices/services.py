@@ -779,3 +779,28 @@ class DeviceService:
             
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error al obtener los tipos de dispositivos: {str(e)}")
+        
+
+    def get_maintenance_interval_by_id(self, interval_id: int) -> Dict[str, Any]:
+        """Obtener un intervalo de mantenimiento por su id"""
+        try:
+            interval = self.db.query(MaintenanceInterval).filter(MaintenanceInterval.id == interval_id).first()
+            if not interval:
+                return JSONResponse(
+                    status_code=404,
+                    content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
+                )
+            interval_data = jsonable_encoder(interval)
+            return JSONResponse(
+                status_code=200,
+                content={"success": True, "data": interval_data}
+            )
+        except Exception as e:
+            self.db.rollback()
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "data": {
+                    "title": "Error al obtener el intervalo de mantenimiento",
+                    "message": str(e)
+                }}
+            )
