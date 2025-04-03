@@ -180,11 +180,30 @@ class DeviceService:
             # Convertir los datos del dispositivo en un diccionario
             data = device_data.dict()
 
+            # Validación: Verificar que no exista ya un dispositivo con el mismo serial_number y devices_id (tipo de dispositivo)
+            serial_number = data.get("serial_number")
+            devices_id = data.get("devices_id")
+            duplicate = self.db.query(DeviceIot).filter(
+                DeviceIot.serial_number == serial_number,
+                DeviceIot.devices_id == devices_id
+            ).first()
+            if duplicate:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Error de validación",
+                            "message": "Ya existe un dispositivo con el mismo número de serie para este tipo de dispositivo"
+                        }
+                    }
+                )
+
             # Crear el nuevo dispositivo en DeviceIot, utilizando el JSON enviado en 'price_device'
             new_device = DeviceIot(
-                serial_number = data.get("serial_number"),
+                serial_number = serial_number,
                 model = data.get("model"),
-                devices_id = data.get("devices_id"),
+                devices_id = devices_id,
                 price_device = data.get("price_device"),  # Aquí almacenamos el JSON que llega desde el frontend
                 lot_id = data.get("lot_id"),
                 installation_date = data.get("installation_date"),
@@ -221,6 +240,7 @@ class DeviceService:
                     }
                 }
             )
+
 
     def update_device(self, device_id: int, device_data: DeviceUpdate) -> Dict[str, Any]:
         """Actualizar información del dispositivo operativo"""
