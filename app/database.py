@@ -7,7 +7,12 @@ from dotenv import load_dotenv
 # Cargar variables de entorno
 load_dotenv()
 
+
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+
+
 
 # Configurar la base de datos
 engine = create_engine(DATABASE_URL)

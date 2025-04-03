@@ -6,6 +6,7 @@ __pycache__/
 app/__pycache__
 app/roles/__pycache__
 env
+venv_disriego_iot
 uploads
 .pytest_cache/
 
