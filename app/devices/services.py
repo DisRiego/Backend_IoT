@@ -378,9 +378,11 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
                 )
+            # Asignar los valores, incluyendo la fecha estimada de mantenimiento
             device.lot_id = assignment_data.lot_id
             device.installation_date = assignment_data.installation_date
             device.maintenance_interval_id = assignment_data.maintenance_interval_id
+            device.estimated_maintenance_date = assignment_data.estimated_maintenance_date  # Nuevo campo
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(
@@ -459,9 +461,11 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
                 )
+            # Asignar los valores, incluyendo la fecha estimada de mantenimiento
             device.lot_id = reassignment_data.lot_id
             device.installation_date = reassignment_data.installation_date
             device.maintenance_interval_id = reassignment_data.maintenance_interval_id
+            device.estimated_maintenance_date = reassignment_data.estimated_maintenance_date  # Nuevo campo
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(
@@ -487,6 +491,7 @@ class DeviceService:
                 status_code=500,
                 content={"success": False, "data": {"title": "Error al reasignar lote", "message": str(e)}}
             )
+
 
     def delete_device(self, device_id: int) -> Dict[str, Any]:
         """Eliminar un dispositivo (borrado lógico mediante cambio de estado)"""
