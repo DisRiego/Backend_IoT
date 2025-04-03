@@ -180,11 +180,30 @@ class DeviceService:
             # Convertir los datos del dispositivo en un diccionario
             data = device_data.dict()
 
+            # Validación: Verificar que no exista ya un dispositivo con el mismo serial_number y devices_id (tipo de dispositivo)
+            serial_number = data.get("serial_number")
+            devices_id = data.get("devices_id")
+            duplicate = self.db.query(DeviceIot).filter(
+                DeviceIot.serial_number == serial_number,
+                DeviceIot.devices_id == devices_id
+            ).first()
+            if duplicate:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Error de validación",
+                            "message": "Ya existe un dispositivo con el mismo número de serie para este tipo de dispositivo"
+                        }
+                    }
+                )
+
             # Crear el nuevo dispositivo en DeviceIot, utilizando el JSON enviado en 'price_device'
             new_device = DeviceIot(
-                serial_number = data.get("serial_number"),
+                serial_number = serial_number,
                 model = data.get("model"),
-                devices_id = data.get("devices_id"),
+                devices_id = devices_id,
                 price_device = data.get("price_device"),  # Aquí almacenamos el JSON que llega desde el frontend
                 lot_id = data.get("lot_id"),
                 installation_date = data.get("installation_date"),
@@ -221,6 +240,7 @@ class DeviceService:
                     }
                 }
             )
+
 
     def update_device(self, device_id: int, device_data: DeviceUpdate) -> Dict[str, Any]:
         """Actualizar información del dispositivo operativo"""
@@ -317,7 +337,7 @@ class DeviceService:
             )
 
     def assign_to_lot(self, assignment_data: DeviceAssignRequest, user_id: Optional[int] = None) -> Dict[str, Any]:
-        """Asignar un dispositivo a un lote"""
+        """Asignar un dispositivo a un lote y establecer su estado en 'No Operativo' (ID 12)"""
         try:
             device = self.db.query(DeviceIot).filter(DeviceIot.id == assignment_data.device_id).first()
             if not device:
@@ -378,9 +398,15 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
                 )
+            # Asignar los valores, incluyendo la fecha estimada de mantenimiento
             device.lot_id = assignment_data.lot_id
             device.installation_date = assignment_data.installation_date
             device.maintenance_interval_id = assignment_data.maintenance_interval_id
+            device.estimated_maintenance_date = assignment_data.estimated_maintenance_date
+            
+            # Establecer el estado en "No Operativo" (ID 12)
+            device.status = 12
+
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(
@@ -389,13 +415,14 @@ class DeviceService:
                     "success": True,
                     "data": {
                         "title": "Asignación exitosa",
-                        "message": "El dispositivo ha sido asignado al lote correctamente",
+                        "message": "El dispositivo ha sido asignado al lote correctamente y se ha establecido en 'No Operativo'",
                         "device_id": device.id,
                         "lot_id": lot.id,
                         "lot_name": lot.name,
                         "installation_date": device.installation_date.isoformat() if device.installation_date else None,
                         "maintenance_interval": maintenance_interval.name,
-                        "estimated_maintenance_date": device.estimated_maintenance_date.isoformat() if device.estimated_maintenance_date else None
+                        "estimated_maintenance_date": device.estimated_maintenance_date.isoformat() if device.estimated_maintenance_date else None,
+                        "status": device.status
                     }
                 }
             )
@@ -405,6 +432,7 @@ class DeviceService:
                 status_code=500,
                 content={"success": False, "data": {"title": "Error al asignar lote", "message": str(e)}}
             )
+
 
     def reassign_to_lot(self, reassignment_data: DeviceReassignRequest, user_id: Optional[int] = None) -> Dict[str, Any]:
         """Reasignar un dispositivo a otro lote"""
@@ -459,9 +487,11 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
                 )
+            # Asignar los valores, incluyendo la fecha estimada de mantenimiento
             device.lot_id = reassignment_data.lot_id
             device.installation_date = reassignment_data.installation_date
             device.maintenance_interval_id = reassignment_data.maintenance_interval_id
+            device.estimated_maintenance_date = reassignment_data.estimated_maintenance_date  # Nuevo campo
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(
@@ -487,6 +517,7 @@ class DeviceService:
                 status_code=500,
                 content={"success": False, "data": {"title": "Error al reasignar lote", "message": str(e)}}
             )
+
 
     def delete_device(self, device_id: int) -> Dict[str, Any]:
         """Eliminar un dispositivo (borrado lógico mediante cambio de estado)"""
@@ -779,3 +810,28 @@ class DeviceService:
             
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error al obtener los tipos de dispositivos: {str(e)}")
+        
+
+    def get_maintenance_interval_by_id(self, interval_id: int) -> Dict[str, Any]:
+        """Obtener un intervalo de mantenimiento por su id"""
+        try:
+            interval = self.db.query(MaintenanceInterval).filter(MaintenanceInterval.id == interval_id).first()
+            if not interval:
+                return JSONResponse(
+                    status_code=404,
+                    content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
+                )
+            interval_data = jsonable_encoder(interval)
+            return JSONResponse(
+                status_code=200,
+                content={"success": True, "data": interval_data}
+            )
+        except Exception as e:
+            self.db.rollback()
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "data": {
+                    "title": "Error al obtener el intervalo de mantenimiento",
+                    "message": str(e)
+                }}
+            )

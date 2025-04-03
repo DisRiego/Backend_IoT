@@ -68,6 +68,14 @@ def update_device_status(
     device_service = DeviceService(db)
     return device_service.update_device_status(device_id, new_status)
 
+
+@router.get("/maintenance_intervals/{interval_id}", response_model=Dict[str, Any])
+def get_maintenance_interval_by_id(interval_id: int, db: Session = Depends(get_db)):
+    """Obtener un intervalo de mantenimiento por su id"""
+    device_service = DeviceService(db)
+    return device_service.get_maintenance_interval_by_id(interval_id)
+
+
 @router.post("/assign", response_model=Dict[str, Any])
 def assign_device_to_lot(
     assignment_data: DeviceAssignRequest,

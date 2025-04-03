@@ -64,10 +64,15 @@ class DeviceAssignRequest(BaseModel):
     installation_date: datetime
     maintenance_interval_id: int
     property_id: int  # ID del predio
+    estimated_maintenance_date: datetime
 
-class DeviceReassignRequest(DeviceAssignRequest):
-    """Esquema para reasignar un dispositivo a otro lote"""
-    pass
+class DeviceReassignRequest(BaseModel):
+    device_id: int
+    lot_id: int
+    property_id: int
+    installation_date: datetime
+    maintenance_interval_id: int
+    estimated_maintenance_date: datetime
 
 class DeviceStatusChange(BaseModel):
     """Esquema para cambiar el estado de un dispositivo"""
