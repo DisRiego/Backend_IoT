@@ -337,7 +337,7 @@ class DeviceService:
             )
 
     def assign_to_lot(self, assignment_data: DeviceAssignRequest, user_id: Optional[int] = None) -> Dict[str, Any]:
-        """Asignar un dispositivo a un lote"""
+        """Asignar un dispositivo a un lote y establecer su estado en 'No Operativo' (ID 12)"""
         try:
             device = self.db.query(DeviceIot).filter(DeviceIot.id == assignment_data.device_id).first()
             if not device:
@@ -402,7 +402,11 @@ class DeviceService:
             device.lot_id = assignment_data.lot_id
             device.installation_date = assignment_data.installation_date
             device.maintenance_interval_id = assignment_data.maintenance_interval_id
-            device.estimated_maintenance_date = assignment_data.estimated_maintenance_date  # Nuevo campo
+            device.estimated_maintenance_date = assignment_data.estimated_maintenance_date
+            
+            # Establecer el estado en "No Operativo" (ID 12)
+            device.status = 12
+
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(
@@ -411,13 +415,14 @@ class DeviceService:
                     "success": True,
                     "data": {
                         "title": "Asignación exitosa",
-                        "message": "El dispositivo ha sido asignado al lote correctamente",
+                        "message": "El dispositivo ha sido asignado al lote correctamente y se ha establecido en 'No Operativo'",
                         "device_id": device.id,
                         "lot_id": lot.id,
                         "lot_name": lot.name,
                         "installation_date": device.installation_date.isoformat() if device.installation_date else None,
                         "maintenance_interval": maintenance_interval.name,
-                        "estimated_maintenance_date": device.estimated_maintenance_date.isoformat() if device.estimated_maintenance_date else None
+                        "estimated_maintenance_date": device.estimated_maintenance_date.isoformat() if device.estimated_maintenance_date else None,
+                        "status": device.status
                     }
                 }
             )
@@ -427,6 +432,7 @@ class DeviceService:
                 status_code=500,
                 content={"success": False, "data": {"title": "Error al asignar lote", "message": str(e)}}
             )
+
 
     def reassign_to_lot(self, reassignment_data: DeviceReassignRequest, user_id: Optional[int] = None) -> Dict[str, Any]:
         """Reasignar un dispositivo a otro lote"""
