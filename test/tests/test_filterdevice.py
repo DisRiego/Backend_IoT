@@ -71,4 +71,4 @@ async def test_get_all_devices(db_session: Session):
     # Comprobar que el dispositivo recién creado está en la lista
     devices = data["data"]
     device_found = any(device["id"] == created_device_id for device in devices)
-    assert device_found is True, "El dispositivo creado se encuentra en la lista de dispositivos"
+    assert device_found is True, "El dispositivo creado se no encuentra en la lista de dispositivos"
