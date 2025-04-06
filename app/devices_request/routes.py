@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
 from app.database import get_db
 from app.devices_request.services import DeviceRequestService
@@ -55,6 +55,12 @@ def get_request_by_id(request_id : int, db : Session = Depends(get_db)):
     device_service = DeviceRequestService(db)
     return device_service.get_request_by_id(request_id)
 
+@router.get("/request/", response_model=Dict)
+def get_request_by_id(db : Session = Depends(get_db)):
+    """Obtener solicitudes de apertura"""
+    device_service = DeviceRequestService(db)
+    return device_service.get_all_requests()
+
 @router.put("/update-request/{request_id}", response_model=Dict)
 async def update_request(
     request_id: int,  # ID de la solicitud a actualizar
@@ -104,3 +110,28 @@ def get_device_detail(device_id: int, db: Session = Depends(get_db)):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener los detalles del dispositivo: {str(e)}")
+    
+@router.post("/approve-reject-request/", response_model=Dict)
+async def approve_or_reject_request(
+    request_id: int,  # ID de la solicitud
+    status: int,  # Estado: 16 para aprobado, 18 para rechazado
+    justification: Optional[str] = None,  # Justificación solo cuando es rechazado
+    db: Session = Depends(get_db)
+):
+    """Aprobar o rechazar solicitud de apertura de válvula"""
+    try:
+        # Creamos una instancia del servicio
+        device_service = DeviceRequestService(db)
+
+        # Llamamos al método para aprobar o rechazar la solicitud
+        response = await device_service.approve_or_reject_request(
+            request_id=request_id,
+            status=status,
+            justification=justification
+        )
+
+        return response
+    except HTTPException as e:
+        raise e  # Re-lanzamos la excepción si ya se manejó aquí
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al aprobar o rechazar la solicitud: {str(e)}")

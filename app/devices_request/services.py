@@ -91,7 +91,7 @@ class DeviceRequestService:
         
             new_request = Request(
                 type_opening_id = type_opening_id,
-                status = 1,
+                status = 18, # pendiente
                 lot_id = lot_id,
                 user_id = user_id,
                 device_iot_id = device_iot_id,
@@ -313,6 +313,110 @@ class DeviceRequestService:
                     "data": {
                         "title": "Error al obtener el dispositivo IoT",
                         "message": f"Error al obtener los detalles del dispositivo IoT: {str(e)}"
+                    }
+                }
+            )
+        
+    def get_all_requests(self):
+        """Obtener todas las solicitudes de apertura de válvula"""
+        try:
+            # Realiza la consulta para obtener todas las solicitudes
+            requests = self.db.query(Request).all()
+
+            # Verifica si hay solicitudes
+            if not requests:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "success": False,
+                        "data": []
+                    }
+                )
+
+            # Convertir la lista de solicitudes a un formato JSON serializable
+            requests_data = jsonable_encoder(requests)
+
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "data": requests_data
+                }
+            )
+        
+        except Exception as e:
+            # En caso de error
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "data": {
+                        "title": "Error al obtener solicitudes",
+                        "message": f"Ocurrió un error al intentar obtener las solicitudes: {str(e)}"
+                    }
+                }
+            )
+        
+    def approve_or_reject_request(self, request_id: int, status: int, justification: Optional[str] = None):
+        """Aprobar o rechazar la solicitud de apertura de válvula"""
+        try:
+            # Buscar la solicitud por ID
+            request = self.db.query(Request).filter(Request.id == request_id).first()
+
+            if not request:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Solicitud no encontrada",
+                            "message": "No se encontró la solicitud de apertura"
+                        }
+                    }
+                )
+
+            # Verificar si el estado es de rechazo (18), y si es así, la justificación debe estar presente
+            if status == 19 and not justification:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Justificación requerida",
+                            "message": "Debe proporcionar una justificación para rechazar la solicitud"
+                        }
+                    }
+                )
+
+            # Actualizar el estado y la justificación si es necesario
+            request.status = status
+            if status == 19:  # Si es rechazado, agregar la justificación
+                request.justification = justification
+
+            # Guardar los cambios en la base de datos
+            self.db.commit()
+            self.db.refresh(request)
+
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "data": {
+                        "title": "Estado actualizado",
+                        "message": "La solicitud ha sido actualizada correctamente"
+                    }
+                }
+            )
+
+        except Exception as e:
+            self.db.rollback()  # Revertir cambios si ocurre algún error
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "data": {
+                        "title": "Error al actualizar el estado",
+                        "message": f"Error al intentar actualizar la solicitud: {str(e)}"
                     }
                 }
             )
