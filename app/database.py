@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL","postgresql://adminintegrador:8520741963@db:5432/dis_riego_db")
 
 
 

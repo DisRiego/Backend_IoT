@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from app.devices.models import (
     DeviceIot,
     Device,
+    Notification,
     Vars,
     Lot,
     MaintenanceInterval,
@@ -281,7 +282,7 @@ class DeviceService:
                 }
             )
 
-    def update_device_status(self, device_id: int, new_status: int) -> Dict[str, Any]:
+    async def update_device_status(self, device_id: int, new_status: int) -> Dict[str, Any]:
         """Actualizar el estado del dispositivo (habilitar/inhabilitar)"""
         try:
             device = self.db.query(DeviceIot).filter(DeviceIot.id == device_id).first()
@@ -290,12 +291,17 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Dispositivo no encontrado"}
                 )
-            status_obj = self.db.query(Vars).filter(Vars.id == new_status).first()
-            if not status_obj:
+            
+            # Obtener el estado anterior y nuevo
+            old_status_obj = self.db.query(Vars).filter(Vars.id == device.status).first()
+            new_status_obj = self.db.query(Vars).filter(Vars.id == new_status).first()
+            
+            if not new_status_obj:
                 return JSONResponse(
                     status_code=400,
                     content={"success": False, "data": "Estado no válido"}
                 )
+            
             if device.status == new_status:
                 return JSONResponse(
                     status_code=400,
@@ -303,23 +309,49 @@ class DeviceService:
                         "success": False,
                         "data": {
                             "title": "Operación no válida",
-                            "message": f"El dispositivo ya se encuentra en el estado '{status_obj.name}'"
+                            "message": f"El dispositivo ya se encuentra en el estado '{new_status_obj.name}'"
                         }
                     }
                 )
+            
+            # Guardar el cambio de estado
             device.status = new_status
             self.db.commit()
             self.db.refresh(device)
+            
+            # Notificar al propietario del lote sobre el cambio de estado
+            if device.lot_id:
+                try:
+                    # Obtener el lote
+                    lot = self.db.query(Lot).filter(Lot.id == device.lot_id).first()
+                    if lot:
+                        # Obtener el predio asociado al lote
+                        property_lot = self.db.query(PropertyLot).filter(PropertyLot.lot_id == lot.id).first()
+                        if property_lot:
+                            # Obtener los usuarios vinculados al predio
+                            property_users = self.db.query(PropertyUser).filter(PropertyUser.property_id == property_lot.property_id).all()
+                            for property_user in property_users:
+                                # Enviar notificación a cada usuario
+                                await self.create_notification(
+                                    user_id=property_user.user_id,
+                                    title="Cambio de estado de dispositivo",
+                                    message=f"El dispositivo en el lote '{lot.name}' ha cambiado de estado '{old_status_obj.name if old_status_obj else 'desconocido'}' a '{new_status_obj.name}'",
+                                    notification_type="device_status_change"
+                                )
+                except Exception as e:
+                    print(f"Error al enviar notificación: {str(e)}")
+                    # Continuamos con la ejecución aunque falle la notificación
+            
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
                     "data": {
                         "title": "Estado actualizado",
-                        "message": f"El estado del dispositivo ha sido actualizado a '{status_obj.name}' correctamente",
+                        "message": f"El estado del dispositivo ha sido actualizado a '{new_status_obj.name}' correctamente",
                         "device_id": device.id,
                         "new_status": new_status,
-                        "status_name": status_obj.name
+                        "status_name": new_status_obj.name
                     }
                 }
             )
@@ -336,7 +368,7 @@ class DeviceService:
                 }
             )
 
-    def assign_to_lot(self, assignment_data: DeviceAssignRequest, user_id: Optional[int] = None) -> Dict[str, Any]:
+    async def assign_to_lot(self, assignment_data: DeviceAssignRequest, user_id: Optional[int] = None) -> Dict[str, Any]:
         """Asignar un dispositivo a un lote y establecer su estado en 'No Operativo' (ID 12)"""
         try:
             device = self.db.query(DeviceIot).filter(DeviceIot.id == assignment_data.device_id).first()
@@ -398,6 +430,7 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
                 )
+            
             # Asignar los valores, incluyendo la fecha estimada de mantenimiento
             device.lot_id = assignment_data.lot_id
             device.installation_date = assignment_data.installation_date
@@ -409,6 +442,23 @@ class DeviceService:
 
             self.db.commit()
             self.db.refresh(device)
+            
+            # Notificar a los propietarios del lote sobre la asignación del dispositivo
+            try:
+                # Obtener los usuarios vinculados al predio
+                property_users = self.db.query(PropertyUser).filter(PropertyUser.property_id == assignment_data.property_id).all()
+                for property_user in property_users:
+                    # Enviar notificación a cada usuario
+                    await self.create_notification(
+                        user_id=property_user.user_id,
+                        title="Dispositivo asignado",
+                        message=f"Se ha asignado un nuevo dispositivo al lote '{lot.name}'",
+                        notification_type="device_assigned"
+                    )
+            except Exception as e:
+                print(f"Error al enviar notificación: {str(e)}")
+                # Continuamos con la ejecución aunque falle la notificación
+            
             return JSONResponse(
                 status_code=200,
                 content={
@@ -835,3 +885,40 @@ class DeviceService:
                     "message": str(e)
                 }}
             )
+
+    async def create_notification(self, user_id: int, title: str, message: str, notification_type: str) -> Dict[str, Any]:
+        """Crear una nueva notificación para un usuario"""
+        try:
+            # Verificar si el usuario existe
+            user = self.db.query(User).filter(User.id == user_id).first()
+            if not user:
+                return None
+
+            # Crear la notificación
+            notification = Notification(
+                user_id=user_id,
+                title=title,
+                message=message,
+                type=notification_type,
+                read=False
+            )
+            self.db.add(notification)
+            self.db.commit()
+            self.db.refresh(notification)
+
+            # Enviar la notificación en tiempo real si está disponible
+            try:
+                from app.websockets import notification_manager
+                notification_data = jsonable_encoder(notification)
+                await notification_manager.send_notification(user_id, {
+                    "type": "new_notification",
+                    "data": notification_data
+                })
+            except Exception as e:
+                print(f"Error enviando notificación por WebSocket: {str(e)}")
+
+            return notification
+        except Exception as e:
+            self.db.rollback()
+            print(f"Error al crear notificación: {str(e)}")
+            return None

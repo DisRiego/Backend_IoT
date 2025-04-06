@@ -5,7 +5,9 @@ from sqlalchemy import text
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
+from app.devices.models import DeviceIot, Lot, User
 from app.devices_request.models import Request, TypeOpen
+from app.auth.models import user_role_table  
 
 class DeviceRequestService:
     def __init__(self, db: Session):
@@ -68,13 +70,12 @@ class DeviceRequestService:
                     status_code=400,
                     content = {
                         "success": False,
-                        "data": 
-                            {
-                                "title": "Solicitud de apertura ya existe",
-                                "message": "Ya existe una solicitud de apertura para este lote"
-                            }
+                        "data": {
+                            "title": "Solicitud de apertura ya existe",
+                            "message": "Ya existe una solicitud de apertura para este lote"
                         }
-                    )
+                    }
+                )
 
             # Validación: Si type_opening_id es 1, 'volume_water' es obligatorio
             if type_opening_id == 1 and not volume_water:
@@ -84,7 +85,7 @@ class DeviceRequestService:
                         "success": False,
                         "data": {
                             "title": "Solicitud de apertura",
-                            "message": "El volumen de agua es obligatorio cuando tipo de apertura es del tipo con limite de agua "
+                            "message": "El volumen de agua es obligitorio cuando  tipo de apertura es del tipo con limite de agua "
                         }
                     }
                 )
@@ -104,6 +105,41 @@ class DeviceRequestService:
             self.db.add(new_request)
             self.db.commit()
             self.db.refresh(new_request)
+
+            # Notificar al usuario que creó la solicitud
+            try:
+                # Obtener el lote y el dispositivo para incluir en la notificación
+                lot = self.db.query(Lot).filter(Lot.id == lot_id).first()
+                device = self.db.query(DeviceIot).filter(DeviceIot.id == device_iot_id).first()
+                
+                lot_name = lot.name if lot else f"Lote {lot_id}"
+                device_str = f"{device.model} (ID: {device.id})" if device else f"ID: {device_iot_id}"
+                
+                # Importar el servicio de dispositivos para crear la notificación
+                from app.devices.services import DeviceService
+                device_service = DeviceService(self.db)
+                
+                await device_service.create_notification(
+                    user_id=user_id,
+                    title="Solicitud de apertura creada",
+                    message=f"Se ha creado una solicitud de apertura para el dispositivo {device_str} en el lote {lot_name}",
+                    notification_type="water_request_created"
+                )
+                
+                # Notificar a los administradores
+                # Obtener usuarios con rol administrador
+                admin_users = self.db.query(User).join(user_role_table).join(Role).filter(Role.name == "Administrador").all()
+                
+                for admin in admin_users:
+                    await device_service.create_notification(
+                        user_id=admin.id,
+                        title="Nueva solicitud de apertura",
+                        message=f"El usuario {user_id} ha creado una solicitud de apertura para el dispositivo {device_str} en el lote {lot_name}",
+                        notification_type="water_request_created_admin"
+                    )
+            except Exception as e:
+                print(f"Error al enviar notificación: {str(e)}")
+                # Continuamos con la ejecución aunque falle la notificación
 
             return JSONResponse(
                 status_code=200,
