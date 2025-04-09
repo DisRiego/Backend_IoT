@@ -131,3 +131,23 @@ class DeviceCategoryResponse(BaseModel):
     class Config:
         orm_mode = True
 
+class NotificationBase(BaseModel):
+    """Esquema base para notificaciones"""
+    title: str
+    message: str
+    type: str
+
+class NotificationCreate(NotificationBase):
+    """Esquema para crear una notificación"""
+    user_id: int
+
+class NotificationResponse(NotificationBase):
+    """Esquema para respuesta de notificación"""
+    id: int
+    user_id: int
+    read: bool
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+

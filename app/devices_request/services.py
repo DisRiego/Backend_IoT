@@ -5,11 +5,41 @@ from sqlalchemy import text
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
+from app.devices.models import DeviceIot, Lot, User
 from app.devices_request.models import Request, TypeOpen
+from app.devices.schemas import NotificationCreate
 
 class DeviceRequestService:
     def __init__(self, db: Session):
         self.db = db
+
+
+    # Método auxiliar para crear notificaciones
+    def create_notification(self, user_id: int, title: str, message: str, notification_type: str):
+        """
+        Crea una notificación para un usuario específico.
+        
+        Args:
+            user_id: ID del usuario
+            title: Título de la notificación
+            message: Mensaje detallado de la notificación
+            notification_type: Tipo de notificación (iot_request, iot_approval, etc.)
+            
+        Returns:
+            Resultado de la creación de la notificación
+        """
+        try:
+            notification_data = NotificationCreate(
+                user_id=user_id,
+                title=title,
+                message=message,
+                type=notification_type
+            )
+            return self.user_service.create_notification(notification_data)
+        except Exception as e:
+            print(f"[ERROR] No se pudo crear la notificación: {str(e)}")
+            return {"success": False, "data": None, "message": f"Error al crear notificación: {str(e)}"}
+
 
     def get_type_open(self):
         try:
@@ -64,6 +94,7 @@ class DeviceRequestService:
                         }
                     }
                 )
+
             if type_opening_id == 1 and not volume_water:
                 return JSONResponse(
                     status_code=400,
@@ -89,6 +120,45 @@ class DeviceRequestService:
             self.db.add(new_request)
             self.db.commit()
             self.db.refresh(new_request)
+
+
+            # Obtener información sobre el tipo de apertura para la notificación
+            type_opening = self.db.query(TypeOpen).filter(TypeOpen.id == type_opening_id).first()
+            type_opening_name = type_opening.type_opening if type_opening else "Desconocido"
+            
+            # Obtener información del lote
+            lot = self.db.query(Lot).filter(Lot.id == lot_id).first()
+            lot_name = lot.name if lot else f"Lote {lot_id}"
+            
+            # Notificar al usuario que creó la solicitud
+            try:
+                self.create_notification(
+                    user_id=user_id,
+                    title="Solicitud de apertura creada",
+                    message=f"Su solicitud de apertura para el lote {lot_name} ha sido creada con éxito. Tipo: {type_opening_name}. Fecha de apertura: {open_date.strftime('%d/%m/%Y %H:%M')}",
+                    notification_type="iot_request_created"
+                )
+                
+                # Notificar a administradores o usuarios encargados de aprobar solicitudes
+                admin_query = text("""
+                    SELECT u.id FROM users u
+                    JOIN user_role ur ON u.id = ur.user_id
+                    WHERE ur.role_id = 2
+                """)
+                admins = self.db.execute(admin_query).fetchall()
+                
+                for admin in admins:
+                    self.create_notification(
+                        user_id=admin.id,
+                        title="Nueva solicitud de apertura",
+                        message=f"Se ha recibido una nueva solicitud de apertura para el lote {lot_name}. Tipo: {type_opening_name}.",
+                        notification_type="iot_request_admin"
+                    )
+                
+            except Exception as notif_error:
+                print(f"[ERROR] No se pudo enviar la notificación de creación de solicitud: {str(notif_error)}")
+
+
             return JSONResponse(
                 status_code=200,
                 content={

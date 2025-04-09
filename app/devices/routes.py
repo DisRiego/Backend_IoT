@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from fastapi.encoders import jsonable_encoder
 from app.devices.schemas import DeviceAssignRequest, DeviceReassignRequest
 from app.database import get_db
 from app.devices.services import DeviceService
+from app.devices.models import User, Notification
 from app.devices.schemas import (
     DeviceCreate, 
     DeviceUpdate, 
@@ -153,4 +155,84 @@ def update_sensor_data_by_lot(data: dict, db: Session = Depends(get_db)):
     """
     device_service = DeviceService(db)
     return device_service.update_device_reading_by_lot(data)
+
+@router.get("/notifications/user/{user_id}", response_model=Dict[str, Any])
+def get_user_notifications(
+    user_id: int, 
+    limit: int = Query(50, ge=1, le=100), 
+    unread_only: bool = Query(False),
+    db: Session = Depends(get_db)
+):
+    """Obtener notificaciones de un usuario"""
+    try:
+        # Verificar si el usuario existe
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        # Consultar las notificaciones
+        query = db.query(Notification).filter(Notification.user_id == user_id)
+        
+        if unread_only:
+            query = query.filter(Notification.read == False)
+            
+        notifications = query.order_by(Notification.created_at.desc()).limit(limit).all()
+
+        return {
+            "success": True,
+            "data": jsonable_encoder(notifications)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener las notificaciones: {str(e)}")
+
+@router.put("/notifications/{notification_id}/read", response_model=Dict[str, Any])
+def mark_notification_as_read(notification_id: int, db: Session = Depends(get_db)):
+    """Marcar una notificación específica como leída"""
+    try:
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+        if not notification:
+            raise HTTPException(status_code=404, detail="Notificación no encontrada")
+
+        notification.read = True
+        db.commit()
+        db.refresh(notification)
+
+        return {
+            "success": True,
+            "data": {
+                "title": "Notificaciones",
+                "message": "Notificación marcada como leída correctamente"
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al marcar la notificación como leída: {str(e)}")
+
+@router.put("/notifications/user/{user_id}/read-all", response_model=Dict[str, Any])
+def mark_all_notifications_as_read(user_id: int, db: Session = Depends(get_db)):
+    """Marcar todas las notificaciones de un usuario como leídas"""
+    try:
+        # Verificar si el usuario existe
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        # Marcar todas las notificaciones no leídas como leídas
+        result = db.query(Notification).filter(
+            Notification.user_id == user_id,
+            Notification.read == False
+        ).update({"read": True})
+        
+        db.commit()
+
+        return {
+            "success": True,
+            "data": {
+                "title": "Notificaciones",
+                "message": f"Se han marcado {result} notificaciones como leídas"
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al marcar las notificaciones como leídas: {str(e)}")
 
