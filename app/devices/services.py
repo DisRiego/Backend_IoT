@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from app.devices.models import (
     DeviceIot,
     Device,
+    Notification,
     Vars,
     Lot,
     MaintenanceInterval,
@@ -29,9 +30,43 @@ from app.devices.schemas import (
     DeviceIotReadingUpdateByLot
 )
 
+# Importamos el esquema de notificación para poder crear notificaciones
+from app.users.schemas import NotificationCreate
+
+# Importamos el servicio de usuarios para acceder a los métodos de notificaciones
+from app.users.services import UserService
+
 class DeviceService:
     def __init__(self, db: Session):
         self.db = db
+        # Inicializamos el servicio de usuarios para usar sus métodos de notificaciones
+        self.user_service = UserService(db)
+
+    # Método auxiliar para crear notificaciones
+    def create_notification(self, user_id: int, title: str, message: str, notification_type: str):
+        """
+        Crea una notificación para un usuario específico.
+        
+        Args:
+            user_id: ID del usuario
+            title: Título de la notificación
+            message: Mensaje detallado de la notificación
+            notification_type: Tipo de notificación (iot_assignment, iot_status, etc.)
+            
+        Returns:
+            Resultado de la creación de la notificación
+        """
+        try:
+            notification_data = NotificationCreate(
+                user_id=user_id,
+                title=title,
+                message=message,
+                type=notification_type
+            )
+            return self.user_service.create_notification(notification_data)
+        except Exception as e:
+            print(f"[ERROR] No se pudo crear la notificación: {str(e)}")
+            return {"success": False, "data": None, "message": f"Error al crear notificación: {str(e)}"}
 
     def get_all_devices(self) -> Dict[str, Any]:
         """Obtener todos los dispositivos con información operativa (estado, lote, propiedad y categoría)"""
@@ -282,7 +317,7 @@ class DeviceService:
             )
 
     def update_device_status(self, device_id: int, new_status: int) -> Dict[str, Any]:
-        """Actualizar el estado del dispositivo (habilitar/inhabilitar)"""
+        """Actualizar el estado del dispositivo (habilitar/inhabilitar) y notificar al propietario"""
         try:
             device = self.db.query(DeviceIot).filter(DeviceIot.id == device_id).first()
             if not device:
@@ -290,12 +325,14 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Dispositivo no encontrado"}
                 )
+            
             status_obj = self.db.query(Vars).filter(Vars.id == new_status).first()
             if not status_obj:
                 return JSONResponse(
                     status_code=400,
                     content={"success": False, "data": "Estado no válido"}
                 )
+                
             if device.status == new_status:
                 return JSONResponse(
                     status_code=400,
@@ -307,9 +344,34 @@ class DeviceService:
                         }
                     }
                 )
+                
+            old_status = device.status
             device.status = new_status
             self.db.commit()
             self.db.refresh(device)
+            
+            # Si hay un lote asignado, notificamos al propietario del cambio de estado
+            if device.lot_id:
+                # Obtenemos el lote
+                lot = self.db.query(Lot).filter(Lot.id == device.lot_id).first()
+                if lot:
+                    # Obtenemos la relación PropertyLot para encontrar la propiedad
+                    property_lot = self.db.query(PropertyLot).filter(PropertyLot.lot_id == lot.id).first()
+                    if property_lot:
+                        # Obtenemos la relación PropertyUser para encontrar al propietario
+                        property_user = self.db.query(PropertyUser).filter(
+                            PropertyUser.property_id == property_lot.property_id
+                        ).first()
+                        
+                        if property_user:
+                            # Creamos la notificación para el propietario
+                            self.create_notification(
+                                user_id=property_user.user_id,
+                                title="Cambio de estado en dispositivo IoT",
+                                message=f"El dispositivo con número de serie {device.serial_number} ha cambiado su estado a '{status_obj.name}'.",
+                                notification_type="iot_status_change"
+                            )
+            
             return JSONResponse(
                 status_code=200,
                 content={
@@ -336,7 +398,7 @@ class DeviceService:
                 }
             )
 
-    def assign_to_lot(self, assignment_data: DeviceAssignRequest, user_id: Optional[int] = None) -> Dict[str, Any]:
+    async def assign_to_lot(self, assignment_data: DeviceAssignRequest, user_id: Optional[int] = None) -> Dict[str, Any]:
         """Asignar un dispositivo a un lote y establecer su estado en 'No Operativo' (ID 12)"""
         try:
             device = self.db.query(DeviceIot).filter(DeviceIot.id == assignment_data.device_id).first()
@@ -398,6 +460,7 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
                 )
+            
             # Asignar los valores, incluyendo la fecha estimada de mantenimiento
             device.lot_id = assignment_data.lot_id
             device.installation_date = assignment_data.installation_date
@@ -409,6 +472,23 @@ class DeviceService:
 
             self.db.commit()
             self.db.refresh(device)
+            
+            # Notificar a los propietarios del lote sobre la asignación del dispositivo
+            try:
+                # Obtener los usuarios vinculados al predio
+                property_users = self.db.query(PropertyUser).filter(PropertyUser.property_id == assignment_data.property_id).all()
+                for property_user in property_users:
+                    # Enviar notificación a cada usuario
+                    await self.create_notification(
+                        user_id=property_user.user_id,
+                        title="Dispositivo asignado",
+                        message=f"Se ha asignado un nuevo dispositivo al lote '{lot.name}'",
+                        notification_type="device_assigned"
+                    )
+            except Exception as e:
+                print(f"Error al enviar notificación: {str(e)}")
+                # Continuamos con la ejecución aunque falle la notificación
+            
             return JSONResponse(
                 status_code=200,
                 content={

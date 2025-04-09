@@ -1,8 +1,9 @@
-
-from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Float, Date
+from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Float, Date, Boolean
 from sqlalchemy.orm import relationship , validates
 from app.database import Base
 from app.devices_request.models import Vars
+from datetime import datetime
+
 # =======================================================
 # Modelos para la configuración y operación de dispositivos
 # =======================================================
@@ -180,3 +181,22 @@ class User(Base):
 
     # Relación con PropertyUser
     property_users = relationship("PropertyUser", back_populates="user")
+
+
+class Notification(Base):
+    """Modelo para almacenar notificaciones de usuarios"""
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    title = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    type = Column(String, nullable=False)  # Tipo de notificación
+    read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relación con el usuario
+    user = relationship("User", backref="notifications")
+
+    def __repr__(self):
+        return f"<Notification(id={self.id}, type={self.type}, user_id={self.user_id})>"

@@ -1,14 +1,18 @@
-from fastapi import FastAPI
-from app.database import Base, engine
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+from sqlalchemy.orm import Session
+from app.database import Base, engine, get_db
 from app.devices.routes import router as devices_router
 from app.devices_request.routes import router as devices_request_router
 from app.middlewares import setup_middlewares
 from app.exceptions import setup_exception_handlers
-from app.arduino_reader import read_serial_data 
+from app.arduino_reader import read_serial_data
+from app.devices.models import User, Notification
+
 import threading
+import json
 
 # **Configurar FastAPI**
-app = FastAPI( 
+app = FastAPI(
     title="Distrito de Riego API Gateway - IoT",
     description="API Gateway para IoT en el sistema de riego",
     version="1.0.0"
@@ -31,8 +35,10 @@ async def startup_event():
     # Inicia el hilo en segundo plano para leer el puerto serial
     threading.Thread(target=read_serial_data, daemon=True).start()
     print("Hilo de lectura del Arduino iniciado.")
-    
+
 # **Endpoint de Salud**
 @app.get("/health", tags=["Health"])
 async def health_check():
     return {"status": "ok", "message": "API funcionando correctamente"}
+
+
