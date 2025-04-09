@@ -335,188 +335,132 @@ class DeviceService:
                     }
                 }
             )
-
     def assign_to_lot(self, assignment_data: DeviceAssignRequest, user_id: Optional[int] = None) -> Dict[str, Any]:
         """Asignar un dispositivo a un lote y establecer su estado en 'No Operativo' (ID 12)"""
         try:
-            device = self.db.query(DeviceIot).filter(DeviceIot.id == assignment_data.device_id).first()
+            device = self.db.query(DeviceIot).get(assignment_data.device_id)
             if not device:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": "Dispositivo no encontrado"}
-                )
+                return JSONResponse(status_code=404, content={"success": False, "data": "Dispositivo no encontrado"})
             if device.status == 25:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "data": {
-                            "title": "Operación no válida",
-                            "message": "No se puede asignar un dispositivo inhabilitado"
-                        }
-                    }
-                )
+                return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Operación no válida", "message": "No se puede asignar un dispositivo inhabilitado"}})
             if device.lot_id:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "data": {
-                            "title": "Operación no válida",
-                            "message": "El dispositivo ya está asignado a un lote. Use reasignar en su lugar."
-                        }
-                    }
-                )
-            # Verificar lote
-            lot = self.db.query(Lot).filter(Lot.id == assignment_data.lot_id).first()
+                return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Operación no válida", "message": "El dispositivo ya está asignado a un lote. Use reasignar en su lugar."}})
+
+            # Validación de un solo tipo por lote (salvo breaker, fusible, portafusible, dps)
+            tipo_obj = self.db.query(DeviceType).get(device.devices_id)
+            tipo_nombre = tipo_obj.name.lower() if tipo_obj else ""
+            excepciones = {"breaker", "fusible", "portafusible", "dps"}
+            existing = (
+                self.db.query(DeviceIot)
+                  .filter(DeviceIot.lot_id == assignment_data.lot_id)
+                  .filter(DeviceIot.devices_id == device.devices_id)
+                  .count()
+            )
+            if tipo_nombre not in excepciones and existing >= 1:
+                return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Duplicado", "message": f"Ya existe un dispositivo de tipo '{tipo_obj.name}' asignado al lote {assignment_data.lot_id}"}})
+            if tipo_nombre in excepciones and existing >= 2:
+                return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Límite alcanzado", "message": f"No puedes asignar más de dos dispositivos de tipo '{tipo_obj.name}' al lote {assignment_data.lot_id}"}})
+
+            # Verificar lote y predio...
+            lot = self.db.query(Lot).get(assignment_data.lot_id)
             if not lot:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": "Lote no encontrado"}
-                )
-            # Verificar que el lote pertenezca al predio especificado utilizando la tabla intermedia PropertyLot
-            property_lot = self.db.query(PropertyLot).filter(
-                PropertyLot.lot_id == assignment_data.lot_id,
-                PropertyLot.property_id == assignment_data.property_id
+                return JSONResponse(status_code=404, content={"success": False, "data": "Lote no encontrado"})
+            property_lot = self.db.query(PropertyLot).filter_by(
+                lot_id=assignment_data.lot_id,
+                property_id=assignment_data.property_id
             ).first()
             if not property_lot:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "data": {
-                            "title": "Operación no válida",
-                            "message": "El lote no pertenece al predio especificado"
-                        }
-                    }
-                )
-            maintenance_interval = self.db.query(MaintenanceInterval).filter(
-                MaintenanceInterval.id == assignment_data.maintenance_interval_id
-            ).first()
+                return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Operación no válida", "message": "El lote no pertenece al predio especificado"}})
+            maintenance_interval = self.db.query(MaintenanceInterval).get(assignment_data.maintenance_interval_id)
             if not maintenance_interval:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
-                )
-            # Asignar los valores, incluyendo la fecha estimada de mantenimiento
+                return JSONResponse(status_code=404, content={"success": False, "data": "Intervalo de mantenimiento no encontrado"})
+
             device.lot_id = assignment_data.lot_id
             device.installation_date = assignment_data.installation_date
             device.maintenance_interval_id = assignment_data.maintenance_interval_id
             device.estimated_maintenance_date = assignment_data.estimated_maintenance_date
-            
-            # Establecer el estado en "No Operativo" (ID 12)
-            device.status = 12
+            device.status = 12  # No Operativo
 
             self.db.commit()
             self.db.refresh(device)
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "success": True,
-                    "data": {
-                        "title": "Asignación exitosa",
-                        "message": "El dispositivo ha sido asignado al lote correctamente y se ha establecido en 'No Operativo'",
-                        "device_id": device.id,
-                        "lot_id": lot.id,
-                        "lot_name": lot.name,
-                        "installation_date": device.installation_date.isoformat() if device.installation_date else None,
-                        "maintenance_interval": maintenance_interval.name,
-                        "estimated_maintenance_date": device.estimated_maintenance_date.isoformat() if device.estimated_maintenance_date else None,
-                        "status": device.status
-                    }
-                }
-            )
+            return JSONResponse(status_code=200, content={"success": True, "data": {
+                "title": "Asignación exitosa",
+                "message": "El dispositivo ha sido asignado al lote correctamente y se ha establecido en 'No Operativo'",
+                "device_id": device.id,
+                "lot_id": lot.id,
+                "lot_name": lot.name,
+                "installation_date": device.installation_date.isoformat() if device.installation_date else None,
+                "maintenance_interval": maintenance_interval.name,
+                "estimated_maintenance_date": device.estimated_maintenance_date.isoformat() if device.estimated_maintenance_date else None,
+                "status": device.status
+            }})
         except Exception as e:
             self.db.rollback()
-            return JSONResponse(
-                status_code=500,
-                content={"success": False, "data": {"title": "Error al asignar lote", "message": str(e)}}
-            )
+            return JSONResponse(status_code=500, content={"success": False, "data": {"title": "Error al asignar lote", "message": str(e)}})
 
 
     def reassign_to_lot(self, reassignment_data: DeviceReassignRequest, user_id: Optional[int] = None) -> Dict[str, Any]:
         """Reasignar un dispositivo a otro lote"""
         try:
-            device = self.db.query(DeviceIot).filter(DeviceIot.id == reassignment_data.device_id).first()
+            device = self.db.query(DeviceIot).get(reassignment_data.device_id)
             if not device:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": "Dispositivo no encontrado"}
-                )
+                return JSONResponse(status_code=404, content={"success": False, "data": "Dispositivo no encontrado"})
             if device.status == 25:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "data": {"title": "Operación no válida", "message": "No se puede reasignar un dispositivo inhabilitado"}
-                    }
-                )
+                return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Operación no válida", "message": "No se puede reasignar un dispositivo inhabilitado"}})
             if not device.lot_id:
-                return JSONResponse(
-                    status_code=400,
-                    content={"success": False, "data": {"title": "Operación no válida", "message": "El dispositivo no está asignado a ningún lote. Use asignar en su lugar."}}
-                )
+                return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Operación no válida", "message": "El dispositivo no está asignado a ningún lote. Use asignar en su lugar."}})
+
             previous_lot_id = device.lot_id
-            lot = self.db.query(Lot).filter(Lot.id == reassignment_data.lot_id).first()
+
+            # Validación de un solo tipo por lote (salvo breaker, fusible, portafusible, dps)
+            tipo_obj = self.db.query(DeviceType).get(device.devices_id)
+            tipo_nombre = tipo_obj.name.lower() if tipo_obj else ""
+            excepciones = {"breaker", "fusible", "portafusible", "dps"}
+            existing = (
+                self.db.query(DeviceIot)
+                  .filter(DeviceIot.lot_id == reassignment_data.lot_id)
+                  .filter(DeviceIot.devices_id == device.devices_id)
+                  .count()
+            )
+            if tipo_nombre not in excepciones and existing >= 1:
+                return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Duplicado", "message": f"Ya existe un dispositivo de tipo '{tipo_obj.name}' asignado al lote {reassignment_data.lot_id}"}})
+            if tipo_nombre in excepciones and existing >= 2:
+                return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Límite alcanzado", "message": f"No puedes asignar más de dos dispositivos de tipo '{tipo_obj.name}' al lote {reassignment_data.lot_id}"}})
+
+            lot = self.db.query(Lot).get(reassignment_data.lot_id)
             if not lot:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": "Lote no encontrado"}
-                )
-            # Validar que el lote pertenezca al predio especificado usando la tabla intermedia PropertyLot
-            property_lot = self.db.query(PropertyLot).filter(
-                PropertyLot.lot_id == reassignment_data.lot_id,
-                PropertyLot.property_id == reassignment_data.property_id
+                return JSONResponse(status_code=404, content={"success": False, "data": "Lote no encontrado"})
+            property_lot = self.db.query(PropertyLot).filter_by(
+                lot_id=reassignment_data.lot_id,
+                property_id=reassignment_data.property_id
             ).first()
             if not property_lot:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "data": {
-                            "title": "Operación no válida",
-                            "message": "El lote no pertenece al predio especificado"
-                        }
-                    }
-                )
-            maintenance_interval = self.db.query(MaintenanceInterval).filter(
-                MaintenanceInterval.id == reassignment_data.maintenance_interval_id
-            ).first()
+                return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Operación no válida", "message": "El lote no pertenece al predio especificado"}})
+            maintenance_interval = self.db.query(MaintenanceInterval).get(reassignment_data.maintenance_interval_id)
             if not maintenance_interval:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
-                )
-            # Asignar los valores, incluyendo la fecha estimada de mantenimiento
+                return JSONResponse(status_code=404, content={"success": False, "data": "Intervalo de mantenimiento no encontrado"})
+
             device.lot_id = reassignment_data.lot_id
             device.installation_date = reassignment_data.installation_date
             device.maintenance_interval_id = reassignment_data.maintenance_interval_id
-            device.estimated_maintenance_date = reassignment_data.estimated_maintenance_date  # Nuevo campo
+            device.estimated_maintenance_date = reassignment_data.estimated_maintenance_date
+
             self.db.commit()
             self.db.refresh(device)
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "success": True,
-                    "data": {
-                        "title": "Reasignación exitosa",
-                        "message": "El dispositivo ha sido reasignado al lote correctamente",
-                        "device_id": device.id,
-                        "previous_lot_id": previous_lot_id,
-                        "new_lot_id": lot.id,
-                        "lot_name": lot.name,
-                        "installation_date": device.installation_date.isoformat() if device.installation_date else None,
-                        "maintenance_interval": maintenance_interval.name,
-                        "estimated_maintenance_date": device.estimated_maintenance_date.isoformat() if device.estimated_maintenance_date else None
-                    }
-                }
-            )
+            return JSONResponse(status_code=200, content={"success": True, "data": {
+                "title": "Reasignación exitosa",
+                "message": "El dispositivo ha sido reasignado al lote correctamente",
+                "device_id": device.id,
+                "previous_lot_id": previous_lot_id,
+                "new_lot_id": lot.id,
+                "lot_name": lot.name,
+                "installation_date": device.installation_date.isoformat() if device.installation_date else None,
+                "maintenance_interval": maintenance_interval.name,
+                "estimated_maintenance_date": device.estimated_maintenance_date.isoformat() if device.estimated_maintenance_date else None
+            }})
         except Exception as e:
             self.db.rollback()
-            return JSONResponse(
-                status_code=500,
-                content={"success": False, "data": {"title": "Error al reasignar lote", "message": str(e)}}
-            )
+            return JSONResponse(status_code=500, content={"success": False, "data": {"title": "Error al reasignar lote", "message": str(e)}})
 
 
     def delete_device(self, device_id: int) -> Dict[str, Any]:
@@ -551,26 +495,33 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Lote no encontrado"}
                 )
-            devices = (
+
+            # Traer todos los campos de DeviceIot + nombre de tipo (si existe) + nombre de estado (si existe)
+            rows = (    
                 self.db.query(
                     DeviceIot,
+                    DeviceType.name.label("device_type"),
                     Vars.name.label("status_name")
                 )
+                .outerjoin(DeviceType, DeviceIot.devices_id == DeviceType.id)
                 .outerjoin(Vars, DeviceIot.status == Vars.id)
                 .filter(DeviceIot.lot_id == lot_id)
                 .all()
             )
+
             devices_list = []
-            for device, status_name in devices:
-                device_dict = jsonable_encoder(device)
-                device_dict["status_name"] = status_name
-                devices_list.append(device_dict)
+            for device, device_type, status_name in rows:
+                d = jsonable_encoder(device)
+                d["device_type"] = device_type or "No asignado"
+                d["status_name"] = status_name or "No asignado"
+                devices_list.append(d)
+
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
                     "data": {
-                        "lot_id": lot_id,
+                        "lot_id": lot.id,
                         "lot_name": lot.name,
                         "devices": devices_list
                     }
