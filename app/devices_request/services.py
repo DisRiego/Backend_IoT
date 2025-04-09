@@ -7,12 +7,42 @@ from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from app.devices.models import DeviceIot, Lot, User
 from app.devices_request.models import Request, TypeOpen
-from app.auth.models import user_role_table  
+from app.auth.models import user_role_table
+from app.users.services import UserService
+from app.users.schemas import NotificationCreate
 
 class DeviceRequestService:
     def __init__(self, db: Session):
         self.db = db
-    
+        # Inicializamos el servicio de usuarios para usar sus métodos de notificaciones
+        self.user_service = UserService(db)
+
+    # Método auxiliar para crear notificaciones
+    def create_notification(self, user_id: int, title: str, message: str, notification_type: str):
+        """
+        Crea una notificación para un usuario específico.
+        
+        Args:
+            user_id: ID del usuario
+            title: Título de la notificación
+            message: Mensaje detallado de la notificación
+            notification_type: Tipo de notificación (iot_request, iot_approval, etc.)
+            
+        Returns:
+            Resultado de la creación de la notificación
+        """
+        try:
+            notification_data = NotificationCreate(
+                user_id=user_id,
+                title=title,
+                message=message,
+                type=notification_type
+            )
+            return self.user_service.create_notification(notification_data)
+        except Exception as e:
+            print(f"[ERROR] No se pudo crear la notificación: {str(e)}")
+            return {"success": False, "data": None, "message": f"Error al crear notificación: {str(e)}"}
+
     def get_type_open(self):
         """Obtener todos los tipos de apertura"""
         try:
@@ -50,7 +80,7 @@ class DeviceRequestService:
                     }
                 }
             )
-        
+
     async def create_request(
         self,
         type_opening_id: int,
@@ -68,7 +98,7 @@ class DeviceRequestService:
             if self.db.query(Request).filter(Request.device_iot_id == device_iot_id, Request.status == 1).first():
                 return JSONResponse(
                     status_code=400,
-                    content = {
+                    content={
                         "success": False,
                         "data": {
                             "title": "Solicitud de apertura ya existe",
@@ -85,61 +115,62 @@ class DeviceRequestService:
                         "success": False,
                         "data": {
                             "title": "Solicitud de apertura",
-                            "message": "El volumen de agua es obligitorio cuando  tipo de apertura es del tipo con limite de agua "
+                            "message": "El volumen de agua es obligatorio cuando tipo de apertura es del tipo con limite de agua"
                         }
                     }
                 )
         
             new_request = Request(
-                type_opening_id = type_opening_id,
-                status = 1,
-                lot_id = lot_id,
-                user_id = user_id,
-                device_iot_id = device_iot_id,
-                open_date = open_date,
-                close_date = close_date,
-                volume_water = volume_water,
-                request_date = datetime.today().date()
+                type_opening_id=type_opening_id,
+                status=18,  # pendiente
+                lot_id=lot_id,
+                user_id=user_id,
+                device_iot_id=device_iot_id,
+                open_date=open_date,
+                close_date=close_date,
+                volume_water=volume_water,
+                request_date=datetime.today().date()
             )
             
             self.db.add(new_request)
             self.db.commit()
             self.db.refresh(new_request)
 
+            # Obtener información sobre el tipo de apertura para la notificación
+            type_opening = self.db.query(TypeOpen).filter(TypeOpen.id == type_opening_id).first()
+            type_opening_name = type_opening.type_opening if type_opening else "Desconocido"
+            
+            # Obtener información del lote
+            lot = self.db.query(Lot).filter(Lot.id == lot_id).first()
+            lot_name = lot.name if lot else f"Lote {lot_id}"
+            
             # Notificar al usuario que creó la solicitud
             try:
-                # Obtener el lote y el dispositivo para incluir en la notificación
-                lot = self.db.query(Lot).filter(Lot.id == lot_id).first()
-                device = self.db.query(DeviceIot).filter(DeviceIot.id == device_iot_id).first()
-                
-                lot_name = lot.name if lot else f"Lote {lot_id}"
-                device_str = f"{device.model} (ID: {device.id})" if device else f"ID: {device_iot_id}"
-                
-                # Importar el servicio de dispositivos para crear la notificación
-                from app.devices.services import DeviceService
-                device_service = DeviceService(self.db)
-                
-                await device_service.create_notification(
+                self.create_notification(
                     user_id=user_id,
                     title="Solicitud de apertura creada",
-                    message=f"Se ha creado una solicitud de apertura para el dispositivo {device_str} en el lote {lot_name}",
-                    notification_type="water_request_created"
+                    message=f"Su solicitud de apertura para el lote {lot_name} ha sido creada con éxito. Tipo: {type_opening_name}. Fecha de apertura: {open_date.strftime('%d/%m/%Y %H:%M')}",
+                    notification_type="iot_request_created"
                 )
                 
-                # Notificar a los administradores
-                # Obtener usuarios con rol administrador
-                admin_users = self.db.query(User).join(user_role_table).join(Role).filter(Role.name == "Administrador").all()
+                # Notificar a administradores o usuarios encargados de aprobar solicitudes
+                admin_query = text("""
+                    SELECT u.id FROM users u
+                    JOIN user_role ur ON u.id = ur.user_id
+                    WHERE ur.role_id = 2
+                """)
+                admins = self.db.execute(admin_query).fetchall()
                 
-                for admin in admin_users:
-                    await device_service.create_notification(
+                for admin in admins:
+                    self.create_notification(
                         user_id=admin.id,
                         title="Nueva solicitud de apertura",
-                        message=f"El usuario {user_id} ha creado una solicitud de apertura para el dispositivo {device_str} en el lote {lot_name}",
-                        notification_type="water_request_created_admin"
+                        message=f"Se ha recibido una nueva solicitud de apertura para el lote {lot_name}. Tipo: {type_opening_name}.",
+                        notification_type="iot_request_admin"
                     )
-            except Exception as e:
-                print(f"Error al enviar notificación: {str(e)}")
-                # Continuamos con la ejecución aunque falle la notificación
+                
+            except Exception as notif_error:
+                print(f"[ERROR] No se pudo enviar la notificación de creación de solicitud: {str(notif_error)}")
 
             return JSONResponse(
                 status_code=200,
@@ -165,7 +196,6 @@ class DeviceRequestService:
                 }
             )
         
-
     def get_request_by_id(self, request_id):
         """Obtener los detalles de una solicitud de apertura de válvula por ID"""
         try:
