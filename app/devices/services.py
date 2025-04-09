@@ -27,11 +27,10 @@ from app.devices.schemas import (
     DeviceUpdate,
     DeviceAssignRequest,
     DeviceReassignRequest,
-    DeviceIotReadingUpdateByLot
+    DeviceIotReadingUpdateByLot,
+    NotificationCreate
 )
 
-# Importamos el esquema de notificación para poder crear notificaciones
-from app.users.schemas import NotificationCreate
 
 # Importamos el servicio de usuarios para acceder a los métodos de notificaciones
 from app.users.services import UserService
@@ -236,21 +235,48 @@ class DeviceService:
 
             # Crear el nuevo dispositivo en DeviceIot, utilizando el JSON enviado en 'price_device'
             new_device = DeviceIot(
-                serial_number = serial_number,
-                model = data.get("model"),
-                devices_id = devices_id,
-                price_device = data.get("price_device"),  # Aquí almacenamos el JSON que llega desde el frontend
-                lot_id = data.get("lot_id"),
-                installation_date = data.get("installation_date"),
-                maintenance_interval_id = data.get("maintenance_interval_id"),
-                estimated_maintenance_date = data.get("estimated_maintenance_date"),
-                status = data.get("status")
+                serial_number=serial_number,
+                model=data.get("model"),
+                devices_id=devices_id,
+                price_device=data.get("price_device"),  # Aquí almacenamos el JSON que llega desde el frontend
+                lot_id=data.get("lot_id"),
+                installation_date=data.get("installation_date"),
+                maintenance_interval_id=data.get("maintenance_interval_id"),
+                estimated_maintenance_date=data.get("estimated_maintenance_date"),
+                status=data.get("status")
             )
 
             # Guardar el nuevo dispositivo en la base de datos
             self.db.add(new_device)
             self.db.commit()
             self.db.refresh(new_device)
+            
+            # Obtener tipo de dispositivo para incluirlo en la notificación
+            device_type = self.db.query(DeviceType).filter(DeviceType.id == devices_id).first()
+            device_type_name = device_type.name if device_type else "Desconocido"
+            
+            # Notificar a los administradores sobre el nuevo dispositivo
+            try:
+                # Obtener administradores (usuarios con rol de administrador)
+                from sqlalchemy import text
+                admin_query = text("""
+                    SELECT u.id FROM users u
+                    JOIN user_role ur ON u.id = ur.user_id
+                    WHERE ur.role_id = 2
+                """)
+                
+                admins = self.db.execute(admin_query).fetchall()
+                
+                for admin in admins:
+                    self.create_notification(
+                        user_id=admin.id,
+                        title="Nuevo dispositivo IoT registrado",
+                        message=f"Se ha registrado un nuevo dispositivo IoT de tipo {device_type_name} con número de serie {new_device.serial_number} y modelo {new_device.model}.",
+                        notification_type="device_created"
+                    )
+            except Exception as e:
+                print(f"[ERROR] No se pudo enviar la notificación de creación de dispositivo: {str(e)}")
+                # Continuamos con la ejecución aunque falle la notificación
 
             return JSONResponse(
                 status_code=201,
@@ -286,12 +312,61 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Dispositivo no encontrado"}
                 )
+                
+            # Guardar el estado anterior para verificar cambios
+            prev_serial = device.serial_number
+            prev_model = device.model
+            prev_status = device.status
+            
             update_data = device_data.dict(exclude_unset=True)
             for key, value in update_data.items():
                 if hasattr(device, key) and value is not None:
                     setattr(device, key, value)
+                    
             self.db.commit()
             self.db.refresh(device)
+            
+            # Obtener cambios significativos para incluir en la notificación
+            changes = []
+            if prev_serial != device.serial_number:
+                changes.append(f"Número de serie: {prev_serial} → {device.serial_number}")
+            if prev_model != device.model:
+                changes.append(f"Modelo: {prev_model} → {device.model}")
+            if prev_status != device.status:
+                # Obtener los nombres de los estados para una mejor legibilidad
+                prev_status_obj = self.db.query(Vars).filter(Vars.id == prev_status).first()
+                new_status_obj = self.db.query(Vars).filter(Vars.id == device.status).first()
+                prev_status_name = prev_status_obj.name if prev_status_obj else str(prev_status)
+                new_status_name = new_status_obj.name if new_status_obj else str(device.status)
+                changes.append(f"Estado: {prev_status_name} → {new_status_name}")
+            
+            # Notificar si hay un lote asignado
+            if device.lot_id and changes:
+                try:
+                    # Obtener el lote
+                    lot = self.db.query(Lot).filter(Lot.id == device.lot_id).first()
+                    
+                    # Obtener la relación PropertyLot para encontrar la propiedad
+                    property_lot = self.db.query(PropertyLot).filter(PropertyLot.lot_id == device.lot_id).first()
+                    
+                    if lot and property_lot:
+                        # Obtener los usuarios vinculados al predio
+                        property_users = self.db.query(PropertyUser).filter(
+                            PropertyUser.property_id == property_lot.property_id
+                        ).all()
+                        
+                        changes_text = "; ".join(changes)
+                        for property_user in property_users:
+                            self.create_notification(
+                                user_id=property_user.user_id,
+                                title="Información de dispositivo actualizada",
+                                message=f"Se ha actualizado la información del dispositivo con número de serie {device.serial_number} en el lote '{lot.name}'. Cambios: {changes_text}",
+                                notification_type="device_updated"
+                            )
+                except Exception as e:
+                    print(f"[ERROR] No se pudo enviar la notificación de actualización: {str(e)}")
+                    # Continuamos con la ejecución aunque falle la notificación
+            
             return JSONResponse(
                 status_code=200,
                 content={
@@ -478,7 +553,6 @@ class DeviceService:
                 # Obtener los usuarios vinculados al predio
                 property_users = self.db.query(PropertyUser).filter(PropertyUser.property_id == assignment_data.property_id).all()
                 for property_user in property_users:
-                    # Enviar notificación a cada usuario
                     await self.create_notification(
                         user_id=property_user.user_id,
                         title="Dispositivo asignado",
@@ -567,13 +641,38 @@ class DeviceService:
                     status_code=404,
                     content={"success": False, "data": "Intervalo de mantenimiento no encontrado"}
                 )
+            
+            # Obtener información del lote anterior para incluirla en la notificación
+            previous_lot = self.db.query(Lot).filter(Lot.id == previous_lot_id).first()
+            previous_lot_name = previous_lot.name if previous_lot else "Desconocido"
+            
             # Asignar los valores, incluyendo la fecha estimada de mantenimiento
             device.lot_id = reassignment_data.lot_id
             device.installation_date = reassignment_data.installation_date
             device.maintenance_interval_id = reassignment_data.maintenance_interval_id
             device.estimated_maintenance_date = reassignment_data.estimated_maintenance_date  # Nuevo campo
+            
             self.db.commit()
             self.db.refresh(device)
+            
+            # Notificar a los propietarios del predio sobre la reasignación del dispositivo
+            try:
+                # Obtener los usuarios vinculados al predio
+                property_users = self.db.query(PropertyUser).filter(
+                    PropertyUser.property_id == reassignment_data.property_id
+                ).all()
+                
+                for property_user in property_users:
+                    self.create_notification(
+                        user_id=property_user.user_id,
+                        title="Dispositivo reasignado",
+                        message=f"El dispositivo con número de serie {device.serial_number} ha sido reasignado del lote '{previous_lot_name}' al lote '{lot.name}'",
+                        notification_type="device_reassigned"
+                    )
+            except Exception as e:
+                print(f"[ERROR] No se pudo enviar la notificación de reasignación: {str(e)}")
+                # Continuamos con la ejecución aunque falle la notificación
+            
             return JSONResponse(
                 status_code=200,
                 content={
@@ -757,29 +856,115 @@ class DeviceService:
             data = reading.dict()
             device_id = data.get("device_id")
             lot_id = data.get("lot_id")
+            device_type_id = data.get("device_type_id")
+            sensor_value = data.get("sensor_value")
+            
             if device_id is None or lot_id is None:
                 return JSONResponse(
                     status_code=400,
                     content={"success": False, "data": "Faltan device_id o lot_id"}
                 )
+                
             device = self.db.query(DeviceIot).filter(DeviceIot.id == device_id).first()
             if not device:
                 return JSONResponse(
                     status_code=404,
                     content={"success": False, "data": "Dispositivo no encontrado"}
                 )
+                
             # Validar que el dispositivo pertenezca al lote indicado
             if device.lot_id != lot_id:
                 device.lot_id = lot_id
 
             # Eliminar las claves que no queremos almacenar en data_device
+            clean_data = data.copy()
             for key in ["device_id", "lot_id", "device_type_id"]:
-                data.pop(key, None)
-                
-            # Ahora 'data' contiene solo la información de la lectura
-            device.data_device = data  # Guardamos las lecturas del Arduino en data_device
+                clean_data.pop(key, None)
+                    
+            # Guardar las lecturas del Arduino en data_device
+            device.data_device = clean_data
             self.db.commit()
             self.db.refresh(device)
+            
+            # Verificar si la lectura está fuera de rangos normales
+            if sensor_value is not None:
+                # Definir umbrales según el tipo de dispositivo (esto podría venir de una tabla de configuración)
+                thresholds = {
+                    1: {"min": 10, "max": 90, "name": "Sensor de humedad"},  # Ejemplo para humedad (%)
+                    2: {"min": 5, "max": 45, "name": "Sensor de temperatura"},  # Ejemplo para temperatura (°C)
+                    3: {"min": 6, "max": 8, "name": "Sensor de pH"},  # Ejemplo para pH
+                    4: {"min": 0, "max": 5, "name": "Sensor de conductividad"},  # Ejemplo para conductividad (mS/cm)
+                }
+                
+                # Verificar si es un tipo de dispositivo conocido y si la lectura está fuera de rango
+                if device_type_id in thresholds:
+                    threshold = thresholds[device_type_id]
+                    if sensor_value < threshold["min"] or sensor_value > threshold["max"]:
+                        # Obtener información del lote
+                        lot = self.db.query(Lot).filter(Lot.id == lot_id).first()
+                        
+                        # Determinar la gravedad del problema
+                        deviation_pct = 0
+                        if sensor_value < threshold["min"]:
+                            deviation_pct = ((threshold["min"] - sensor_value) / threshold["min"]) * 100
+                        else:
+                            deviation_pct = ((sensor_value - threshold["max"]) / threshold["max"]) * 100
+                        
+                        severity = "moderada"
+                        if deviation_pct > 30:
+                            severity = "crítica"
+                        elif deviation_pct > 15:
+                            severity = "alta"
+                        
+                        # Notificar a los propietarios del lote
+                        try:
+                            # Obtener la relación PropertyLot para encontrar la propiedad
+                            property_lot = self.db.query(PropertyLot).filter(PropertyLot.lot_id == lot_id).first()
+                            
+                            if property_lot:
+                                # Obtener los usuarios vinculados al predio
+                                property_users = self.db.query(PropertyUser).filter(
+                                    PropertyUser.property_id == property_lot.property_id
+                                ).all()
+                                
+                                # Crear mensaje detallado para la notificación
+                                message = (
+                                    f"¡Alerta {severity}! {threshold['name']} en el lote '{lot.name if lot else 'Desconocido'}' "
+                                    f"ha registrado un valor de {sensor_value}, que está fuera del rango normal "
+                                    f"({threshold['min']} - {threshold['max']}). "
+                                    f"Se recomienda verificar el dispositivo con número de serie {device.serial_number}."
+                                )
+                                
+                                for property_user in property_users:
+                                    self.create_notification(
+                                        user_id=property_user.user_id,
+                                        title=f"¡Alerta {severity} en dispositivo IoT!",
+                                        message=message,
+                                        notification_type="device_alert"
+                                    )
+                                
+                                # También notificar a administradores en caso de alertas críticas
+                                if severity == "crítica":
+                                    from sqlalchemy import text
+                                    admin_query = text("""
+                                        SELECT u.id FROM users u
+                                        JOIN user_role ur ON u.id = ur.user_id
+                                        WHERE ur.role_id = 2
+                                    """)
+                                    
+                                    admins = self.db.execute(admin_query).fetchall()
+                                    
+                                    for admin in admins:
+                                        self.create_notification(
+                                            user_id=admin.id,
+                                            title=f"¡ALERTA CRÍTICA en dispositivo IoT!",
+                                            message=message,
+                                            notification_type="device_critical_alert"
+                                        )
+                        except Exception as e:
+                            print(f"[ERROR] No se pudo enviar la notificación de alerta: {str(e)}")
+                            # Continuamos con la ejecución aunque falle la notificación
+            
             return JSONResponse(
                 status_code=200,
                 content={"success": True, "data": jsonable_encoder(device)}
@@ -914,4 +1099,130 @@ class DeviceService:
                     "title": "Error al obtener el intervalo de mantenimiento",
                     "message": str(e)
                 }}
+            )
+
+    def register_report(self, lot_id: int, report_type: str, report_url: str = None) -> Dict[str, Any]:
+        """Registra la generación de un informe y notifica a los propietarios"""
+        try:
+            lot = self.db.query(Lot).filter(Lot.id == lot_id).first()
+            if not lot:
+                return JSONResponse(
+                    status_code=404,
+                    content={"success": False, "data": "Lote no encontrado"}
+                )
+                
+            # Notificar a los propietarios del lote sobre el informe generado
+            try:
+                # Obtener la relación PropertyLot para encontrar la propiedad
+                property_lot = self.db.query(PropertyLot).filter(PropertyLot.lot_id == lot_id).first()
+                
+                if property_lot:
+                    # Obtener los usuarios vinculados al predio
+                    property_users = self.db.query(PropertyUser).filter(
+                        PropertyUser.property_id == property_lot.property_id
+                    ).all()
+                    
+                    # Formatear mensaje según haya URL o no
+                    url_message = f"Puede acceder al informe en: {report_url}" if report_url else "El informe está disponible en el sistema."
+                    
+                    for property_user in property_users:
+                        self.create_notification(
+                            user_id=property_user.user_id,
+                            title=f"Nuevo informe: {report_type}",
+                            message=f"Se ha generado un nuevo informe de tipo '{report_type}' para el lote '{lot.name}'. {url_message}",
+                            notification_type="report_generated"
+                        )
+            except Exception as e:
+                print(f"[ERROR] No se pudo enviar la notificación de informe: {str(e)}")
+                # Continuamos con la ejecución aunque falle la notificación
+                        
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "data": {
+                        "title": "Informe registrado",
+                        "message": "El informe ha sido registrado y notificado correctamente",
+                        "lot_id": lot.id,
+                        "report_type": report_type
+                    }
+                }
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "data": {"title": "Error al registrar informe", "message": str(e)}}
+            )
+
+    def schedule_maintenance(self, device_id: int, maintenance_date: datetime, description: str = None) -> Dict[str, Any]:
+        """Programa un mantenimiento para un dispositivo específico"""
+        try:
+            device = self.db.query(DeviceIot).filter(DeviceIot.id == device_id).first()
+            if not device:
+                return JSONResponse(
+                    status_code=404,
+                    content={"success": False, "data": "Dispositivo no encontrado"}
+                )
+                
+            # Actualizar la fecha estimada de mantenimiento
+            device.estimated_maintenance_date = maintenance_date
+            self.db.commit()
+            self.db.refresh(device)
+            
+            # Notificar al propietario sobre el mantenimiento programado
+            if device.lot_id:
+                try:
+                    # Obtener el lote
+                    lot = self.db.query(Lot).filter(Lot.id == device.lot_id).first()
+                    
+                    # Obtener información del dispositivo para incluirla en la notificación
+                    device_type = self.db.query(DeviceType).filter(DeviceType.id == device.devices_id).first()
+                    device_type_name = device_type.name if device_type else "Desconocido"
+                    
+                    if lot:
+                        # Obtener la relación PropertyLot para encontrar la propiedad
+                        property_lot = self.db.query(PropertyLot).filter(PropertyLot.lot_id == lot.id).first()
+                        
+                        if property_lot:
+                            # Obtener los usuarios vinculados al predio
+                            property_users = self.db.query(PropertyUser).filter(
+                                PropertyUser.property_id == property_lot.property_id
+                            ).all()
+                            
+                            # Formatear fecha para mejor legibilidad
+                            formatted_date = maintenance_date.strftime("%d/%m/%Y")
+                            
+                            for property_user in property_users:
+                                self.create_notification(
+                                    user_id=property_user.user_id,
+                                    title="Mantenimiento programado",
+                                    message=(
+                                        f"Se ha programado un mantenimiento para el dispositivo de tipo {device_type_name} "
+                                        f"con número de serie {device.serial_number} en el lote '{lot.name}' "
+                                        f"para el {formatted_date}. "
+                                        f"{description or ''}"
+                                    ),
+                                    notification_type="maintenance_scheduled"
+                                )
+                except Exception as e:
+                    print(f"[ERROR] No se pudo enviar la notificación de mantenimiento: {str(e)}")
+                    # Continuamos con la ejecución aunque falle la notificación
+            
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "data": {
+                        "title": "Mantenimiento programado",
+                        "message": "El mantenimiento ha sido programado correctamente",
+                        "device_id": device.id,
+                        "maintenance_date": maintenance_date.isoformat()
+                    }
+                }
+            )
+        except Exception as e:
+            self.db.rollback()
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "data": {"title": "Error al programar mantenimiento", "message": str(e)}}
             )

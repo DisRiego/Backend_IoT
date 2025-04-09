@@ -236,3 +236,25 @@ def mark_all_notifications_as_read(user_id: int, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al marcar las notificaciones como leídas: {str(e)}")
 
+@router.post("/maintenance/schedule", response_model=Dict[str, Any])
+def schedule_device_maintenance(
+    device_id: int = Form(...),
+    maintenance_date: datetime = Form(...),
+    description: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Programar un mantenimiento para un dispositivo"""
+    device_service = DeviceService(db)
+    return device_service.schedule_maintenance(device_id, maintenance_date, description)
+
+@router.post("/report/register", response_model=Dict[str, Any])
+def register_lot_report(
+    lot_id: int = Form(...),
+    report_type: str = Form(...),
+    report_url: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Registrar la generación de un informe para un lote"""
+    device_service = DeviceService(db)
+    return device_service.register_report(lot_id, report_type, report_url)
+
