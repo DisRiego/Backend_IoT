@@ -14,6 +14,7 @@ from app.users.schemas import NotificationCreate
 class DeviceRequestService:
     def __init__(self, db: Session):
         self.db = db
+
         # Inicializamos el servicio de usuarios para usar sus métodos de notificaciones
         self.user_service = UserService(db)
 
@@ -43,12 +44,10 @@ class DeviceRequestService:
             print(f"[ERROR] No se pudo crear la notificación: {str(e)}")
             return {"success": False, "data": None, "message": f"Error al crear notificación: {str(e)}"}
 
-    def get_type_open(self):
-        """Obtener todos los tipos de apertura"""
-        try:
-            # Obtener todos los tipos de apertura con el query
-            devices = self.db.query(TypeOpen).all()
 
+    def get_type_open(self):
+        try:
+            devices = self.db.query(TypeOpen).all()
             if not devices:
                 return JSONResponse(
                     status_code=404,
@@ -60,16 +59,12 @@ class DeviceRequestService:
                         }
                     }
                 )
-
-            # Convertir la respuesta a un formato JSON válido
             devices_data = jsonable_encoder(devices)
-
             return JSONResponse(
                 status_code=200,
                 content={"success": True, "data": devices_data}
             )
         except Exception as e:
-            # Aquí capturamos cualquier excepción inesperada
             return JSONResponse(
                 status_code=500,
                 content={
@@ -92,9 +87,6 @@ class DeviceRequestService:
         volume_water: Optional[int] = None 
     ):
         try:
-            """Crear solicitud de apertura de valvula"""
-
-            # validar si ya existe una solicitud para este lote de apertura
             if self.db.query(Request).filter(Request.device_iot_id == device_iot_id, Request.status == 1).first():
                 return JSONResponse(
                     status_code=400,
@@ -107,7 +99,6 @@ class DeviceRequestService:
                     }
                 )
 
-            # Validación: Si type_opening_id es 1, 'volume_water' es obligatorio
             if type_opening_id == 1 and not volume_water:
                 return JSONResponse(
                     status_code=400,
@@ -119,7 +110,6 @@ class DeviceRequestService:
                         }
                     }
                 )
-        
             new_request = Request(
                 type_opening_id=type_opening_id,
                 status=18,  # pendiente
@@ -131,10 +121,10 @@ class DeviceRequestService:
                 volume_water=volume_water,
                 request_date=datetime.today().date()
             )
-            
             self.db.add(new_request)
             self.db.commit()
             self.db.refresh(new_request)
+
 
             # Obtener información sobre el tipo de apertura para la notificación
             type_opening = self.db.query(TypeOpen).filter(TypeOpen.id == type_opening_id).first()
@@ -172,6 +162,7 @@ class DeviceRequestService:
             except Exception as notif_error:
                 print(f"[ERROR] No se pudo enviar la notificación de creación de solicitud: {str(notif_error)}")
 
+
             return JSONResponse(
                 status_code=200,
                 content={
@@ -182,7 +173,6 @@ class DeviceRequestService:
                     }
                 }
             )
-
         except Exception as e:
             self.db.rollback()
             return JSONResponse(
@@ -195,16 +185,11 @@ class DeviceRequestService:
                     }
                 }
             )
-        
+
     def get_request_by_id(self, request_id):
-        """Obtener los detalles de una solicitud de apertura de válvula por ID"""
         try:
-            # Buscar la solicitud por ID
             request_data = self.db.query(Request).filter(Request.device_iot_id == request_id).first()
-
-            # Convertir la respuesta a un formato JSON válido
             devices_data = jsonable_encoder(request_data)
-
             return JSONResponse(
                 status_code=200,
                 content={
@@ -213,7 +198,6 @@ class DeviceRequestService:
                 }
             )
         except Exception as e:
-            # Aquí capturamos cualquier excepción inesperada
             return JSONResponse(
                 status_code=500,
                 content={
@@ -224,7 +208,7 @@ class DeviceRequestService:
                     }
                 }
             )
-    
+
     async def update_request(
         self,
         request_id: int,
@@ -235,11 +219,7 @@ class DeviceRequestService:
         volume_water: Optional[int] = None
     ):
         try:
-            """Actualizar solicitud de apertura de válvula"""
-
-            # Buscar la solicitud por ID
             existing_request = self.db.query(Request).filter(Request.id == request_id).first()
-            
             if not existing_request:
                 return JSONResponse(
                     status_code=404,
@@ -251,8 +231,6 @@ class DeviceRequestService:
                         }
                     }
                 )
-
-            # Si 'type_opening_id' es 1, 'volume_water' es obligatorio
             if type_opening_id == 1 and not volume_water:
                 return JSONResponse(
                     status_code=400,
@@ -264,18 +242,13 @@ class DeviceRequestService:
                         }
                     }
                 )
-
-            # Actualizamos los valores de la solicitud
             existing_request.type_opening_id = type_opening_id
             existing_request.user_id = user_id
             existing_request.open_date = open_date
             existing_request.close_date = close_date
             existing_request.volume_water = volume_water
-
-            # Guardar los cambios en la base de datos
             self.db.commit()
             self.db.refresh(existing_request)
-
             return JSONResponse(
                 status_code=200,
                 content={
@@ -286,7 +259,6 @@ class DeviceRequestService:
                     }
                 }
             )
-
         except Exception as e:
             self.db.rollback()
             return JSONResponse(
@@ -301,9 +273,7 @@ class DeviceRequestService:
             )
 
     def get_device_detail(self, device_id: int):
-        """Obtener los detalles completos del dispositivo IoT usando SQL puro"""
         try:
-            # Realizamos la consulta SQL para obtener los detalles del dispositivo IoT
             query = text("""
                 SELECT
                     di.id,
@@ -316,22 +286,19 @@ class DeviceRequestService:
                     di.status,
                     di.devices_id,
                     di.price_device,
-                    di.user_id,
+                    d.properties AS device_model,
                     l.name AS lot_name,
-                    mi."name"  AS maintenance_interval,
-                    d.properties  AS device_model,
+                    mi.name AS maintenance_interval,
                     u.name AS user_name
                 FROM device_iot di
                 LEFT JOIN lot l ON di.lot_id = l.id
                 LEFT JOIN maintenance_intervals mi ON di.maintenance_interval_id = mi.id
                 LEFT JOIN devices d ON di.devices_id = d.id
-                LEFT JOIN users u ON di.user_id = u.id
+                LEFT JOIN request r ON di.id = r.device_iot_id
+                LEFT JOIN users u ON r.user_id = u.id
                 WHERE di.id = :device_id
             """)
-            
-            # Ejecutamos la consulta SQL y pasamos el device_id como parámetro
             result = self.db.execute(query, {"device_id": device_id}).fetchone()
-
             if not result:
                 return JSONResponse(
                     status_code=404,
@@ -343,8 +310,6 @@ class DeviceRequestService:
                         }
                     }
                 )
-            
-            # Estructuramos los datos en un diccionario
             device_data = {
                 "id": result.id,
                 "serial_number": result.serial_number,
@@ -356,21 +321,20 @@ class DeviceRequestService:
                 "status": result.status,
                 "devices_id": result.devices_id,
                 "device_data": result.price_device,
-                "user_id": result.user_id,
+                "device_model": result.device_model,
                 "lot_name": result.lot_name,
                 "maintenance_interval": result.maintenance_interval,
-                "device_model": result.device_model,
                 "user_name": result.user_name
             }
-
+            # Convertir el diccionario a un formato serializable (por ejemplo, formateando datetime)
+            device_data_serialized = jsonable_encoder(device_data)
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
-                    "data": jsonable_encoder(device_data)
+                    "data": device_data_serialized
                 }
             )
-
         except Exception as e:
             return JSONResponse(
                 status_code=500,
@@ -379,6 +343,90 @@ class DeviceRequestService:
                     "data": {
                         "title": "Error al obtener el dispositivo IoT",
                         "message": f"Error al obtener los detalles del dispositivo IoT: {str(e)}"
+                    }
+                }
+            )
+
+    def get_all_requests(self):
+        try:
+            requests = self.db.query(Request).all()
+            if not requests:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "success": False,
+                        "data": []
+                    }
+                )
+            requests_data = jsonable_encoder(requests)
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "data": requests_data
+                }
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "data": {
+                        "title": "Error al obtener solicitudes",
+                        "message": f"Ocurrió un error al intentar obtener las solicitudes: {str(e)}"
+                    }
+                }
+            )
+
+    def approve_or_reject_request(self, request_id: int, status: int, justification: Optional[str] = None):
+        try:
+            request_obj = self.db.query(Request).filter(Request.id == request_id).first()
+            if not request_obj:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Solicitud no encontrada",
+                            "message": "No se encontró la solicitud de apertura"
+                        }
+                    }
+                )
+            if status == 19 and not justification:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Justificación requerida",
+                            "message": "Debe proporcionar una justificación para rechazar la solicitud"
+                        }
+                    }
+                )
+            request_obj.status = status
+            if status == 19:
+                request_obj.justification = justification
+            self.db.commit()
+            self.db.refresh(request_obj)
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "data": {
+                        "title": "Estado actualizado",
+                        "message": "La solicitud ha sido actualizada correctamente"
+                    }
+                }
+            )
+        except Exception as e:
+            self.db.rollback()
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "data": {
+                        "title": "Error al actualizar el estado",
+                        "message": f"Error al intentar actualizar la solicitud: {str(e)}"
                     }
                 }
             )
