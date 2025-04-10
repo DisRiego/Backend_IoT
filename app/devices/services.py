@@ -57,7 +57,7 @@ class DeviceService:
                 title=title,
                 message=message,
                 type=notification_type,
-                created_at=datetime.utcnow()  # Fecha de creación
+                created_at=datetime.now()  # Fecha de creación
             )
             self.db.add(new_notification)
             self.db.commit()
