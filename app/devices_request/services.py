@@ -128,7 +128,7 @@ class DeviceRequestService:
                 open_date=open_date,
                 close_date=close_date,
                 volume_water=volume_water,
-                request_date=datetime.today().date()
+                request_date=datetime.now()
             )
             self.db.add(new_request)
             self.db.commit()
@@ -277,6 +277,7 @@ class DeviceRequestService:
 
     def get_device_detail(self, device_id: int):
         try:
+            # Consulta del dispositivo con el nombre del estado
             query = text("""
                 SELECT
                     di.id,
@@ -287,6 +288,7 @@ class DeviceRequestService:
                     di.maintenance_interval_id,
                     di.estimated_maintenance_date,
                     di.status,
+                    ds.name AS status_name,
                     di.devices_id,
                     di.price_device,
                     d.properties AS device_model,
@@ -299,6 +301,7 @@ class DeviceRequestService:
                 LEFT JOIN devices d ON di.devices_id = d.id
                 LEFT JOIN request r ON di.id = r.device_iot_id
                 LEFT JOIN users u ON r.user_id = u.id
+                LEFT JOIN vars ds ON ds.id = di.status AND ds.type = 'device_status'
                 WHERE di.id = :device_id
             """)
             result = self.db.execute(query, {"device_id": device_id}).fetchone()
@@ -313,6 +316,27 @@ class DeviceRequestService:
                         }
                     }
                 )
+
+            # Última solicitud asociada al dispositivo
+            latest_request = self.db.execute(text("""
+                SELECT
+                    r.id,
+                    r.status,
+                    v.name AS status_name,
+                    r.open_date,
+                    r.close_date,
+                    r.volume_water,
+                    r.request_date,
+                    r.user_id,
+                    r.lot_id,
+                    r.type_opening_id
+                FROM request r
+                LEFT JOIN vars v ON v.id = r.status AND v.type = 'request_status'
+                WHERE r.device_iot_id = :device_id
+                ORDER BY r.open_date DESC
+                LIMIT 1
+            """), {"device_id": device_id}).fetchone()
+
             device_data = {
                 "id": result.id,
                 "serial_number": result.serial_number,
@@ -321,21 +345,37 @@ class DeviceRequestService:
                 "installation_date": result.installation_date,
                 "maintenance_interval_id": result.maintenance_interval_id,
                 "estimated_maintenance_date": result.estimated_maintenance_date,
-                "status": result.status,
+                "status": {
+                    "id": result.status,
+                    "name": result.status_name
+                },
                 "devices_id": result.devices_id,
                 "device_data": result.price_device,
                 "device_model": result.device_model,
                 "lot_name": result.lot_name,
                 "maintenance_interval": result.maintenance_interval,
-                "user_name": result.user_name
+                "user_name": result.user_name,
+                "latest_request": {
+                    "id": latest_request.id,
+                    "status": {
+                        "id": latest_request.status,
+                        "name": latest_request.status_name
+                    },
+                    "open_date": latest_request.open_date,
+                    "close_date": latest_request.close_date,
+                    "volume_water": latest_request.volume_water,
+                    "request_date": latest_request.request_date,
+                    "user_id": latest_request.user_id,
+                    "lot_id": latest_request.lot_id,
+                    "type_opening_id": latest_request.type_opening_id
+                } if latest_request else None
             }
-            # Convertir el diccionario a un formato serializable (por ejemplo, formateando datetime)
-            device_data_serialized = jsonable_encoder(device_data)
+
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
-                    "data": device_data_serialized
+                    "data": jsonable_encoder(device_data)
                 }
             )
         except Exception as e:
@@ -350,36 +390,6 @@ class DeviceRequestService:
                 }
             )
 
-    def get_all_requests(self):
-        try:
-            requests = self.db.query(Request).all()
-            if not requests:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "success": False,
-                        "data": []
-                    }
-                )
-            requests_data = jsonable_encoder(requests)
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "success": True,
-                    "data": requests_data
-                }
-            )
-        except Exception as e:
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False,
-                    "data": {
-                        "title": "Error al obtener solicitudes",
-                        "message": f"Ocurrió un error al intentar obtener las solicitudes: {str(e)}"
-                    }
-                }
-            )
 
     def approve_or_reject_request(self, request_id: int, status: int, justification: Optional[str] = None):
         try:
