@@ -748,7 +748,7 @@ class DeviceService:
                 data.pop(key, None)
                 
             # Ahora 'data' contiene solo la información de la lectura
-            device.data_device = data  # Guardamos las lecturas del Arduino en data_device
+            device.data_devices = data  # Guardamos las lecturas del Arduino en data_device
             self.db.commit()
             self.db.refresh(device)
             return JSONResponse(

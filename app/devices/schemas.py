@@ -151,3 +151,5 @@ class NotificationResponse(NotificationBase):
     class Config:
         orm_mode = True
 
+class ServoCommand(BaseModel):
+    action: str
