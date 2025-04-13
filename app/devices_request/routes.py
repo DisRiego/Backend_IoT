@@ -57,6 +57,15 @@ def get_all_requests(db: Session = Depends(get_db)):
     service = DeviceRequestService(db)
     return service.get_all_requests()
 
+@router.get("/user/{user_id}", response_model=Dict)
+def get_requests_by_user(user_id: int, db: Session = Depends(get_db)):
+    """
+    Obtiene todas las solicitudes de un usuario.
+    """
+    service = DeviceRequestService(db)
+    result = service.get_requests_by_user(user_id)
+    return result
+
 @router.put("/update-request/{request_id}", response_model=Dict)
 async def update_request(
     request_id: int,

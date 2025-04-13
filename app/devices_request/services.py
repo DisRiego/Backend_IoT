@@ -46,6 +46,34 @@ class DeviceRequestService:
                 }
             )
 
+    def get_requests_by_user(self, user_id: int) -> JSONResponse:
+        """
+        Obtiene todas las solicitudes hechas por un usuario específico.
+        """
+        try:
+            rows: List[Request] = (
+                self.db
+                .query(Request)
+                .filter(Request.user_id == user_id)
+                .order_by(Request.request_date.desc())
+                .all()
+            )
+            data = jsonable_encoder(rows)
+            return JSONResponse(
+                status_code=200,
+                content={"success": True, "data": data}
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "data": {
+                        "title": "Error al obtener solicitudes por usuario",
+                        "message": str(e)
+                    }
+                }
+            )
     # Método auxiliar para crear notificaciones
     def create_notification(self, user_id: int, title: str, message: str, notification_type: str):
         """
