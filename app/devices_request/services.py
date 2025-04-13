@@ -5,8 +5,8 @@ from sqlalchemy import text
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
-from app.devices.models import DeviceIot, Lot, User
-from app.devices_request.models import Request, TypeOpen
+from app.devices.models import DeviceIot, Lot, User , Property , PropertyLot , PropertyUser
+from app.devices_request.models import Request, TypeOpen , Vars
 from app.devices.schemas import NotificationCreate
 
 class DeviceRequestService:
@@ -15,25 +15,44 @@ class DeviceRequestService:
 
 
 
-    def get_all_requests(self):
+    def get_all_requests(self) -> JSONResponse:
+        """
+        Obtiene todas las solicitudes, incluyendo:
+         - document_number del dueño del lote
+         - name del estado (Vars.name) de la solicitud
+        """
         try:
-            requests = self.db.query(Request).all()
-            if not requests:
+            # Query con joins
+            rows = (
+                self.db.query(Request, Vars.name.label("status_name"), User.document_number.label("owner_document"))
+                .join(Vars, Request.status == Vars.id)                         # Estado de la solicitud
+                .join(PropertyLot, Request.lot_id == PropertyLot.lot_id)      # Relación lote ↔ propiedad
+                .join(PropertyUser, PropertyLot.property_id == PropertyUser.property_id)  # Relación propiedad ↔ usuario
+                .join(User, PropertyUser.user_id == User.id)                  # Usuario dueño
+                .all()
+            )
+
+            if not rows:
                 return JSONResponse(
                     status_code=404,
-                    content={
-                        "success": False,
-                        "data": []
-                    }
+                    content={"success": False, "data": []}
                 )
-            requests_data = jsonable_encoder(requests)
+
+            # Construir la lista de diccionarios
+            result: List[Dict[str, Any]] = []
+            for req, status_name, owner_document in rows:
+                # Serializar el objeto Request
+                base = jsonable_encoder(req)
+                # Añadir campos extra
+                base["status_name"] = status_name
+                base["owner_document_number"] = owner_document
+                result.append(base)
+
             return JSONResponse(
                 status_code=200,
-                content={
-                    "success": True,
-                    "data": requests_data
-                }
+                content={"success": True, "data": result}
             )
+
         except Exception as e:
             return JSONResponse(
                 status_code=500,
