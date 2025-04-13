@@ -49,10 +49,13 @@ def get_request_by_id(request_id: int, db: Session = Depends(get_db)):
     device_service = DeviceRequestService(db)
     return device_service.get_request_by_id(request_id)
 
-@router.get("/request/", response_model=Dict)
+@router.get("/", response_model=Dict)
 def get_all_requests(db: Session = Depends(get_db)):
-    device_service = DeviceRequestService(db)
-    return device_service.get_all_requests()
+    """
+    Obtiene todas las solicitudes de apertura/cierre de válvulas.
+    """
+    service = DeviceRequestService(db)
+    return service.get_all_requests()
 
 @router.put("/update-request/{request_id}", response_model=Dict)
 async def update_request(

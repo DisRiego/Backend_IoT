@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from fastapi import HTTPException
@@ -13,6 +13,38 @@ class DeviceRequestService:
     def __init__(self, db: Session):
         self.db = db
 
+
+
+    def get_all_requests(self):
+        try:
+            requests = self.db.query(Request).all()
+            if not requests:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "success": False,
+                        "data": []
+                    }
+                )
+            requests_data = jsonable_encoder(requests)
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "data": requests_data
+                }
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "data": {
+                        "title": "Error al obtener solicitudes",
+                        "message": f"Ocurrió un error al intentar obtener las solicitudes: {str(e)}"
+                    }
+                }
+            )
 
     # Método auxiliar para crear notificaciones
     def create_notification(self, user_id: int, title: str, message: str, notification_type: str):
