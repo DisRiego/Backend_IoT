@@ -470,13 +470,13 @@ class DeviceRequestService:
             )
 
 
-    def approve_or_reject_request(self, request_id: int, status: int, justification: Optional[str] = None):
+    def approve_request(self, request_id: int) -> JSONResponse:
         try:
             request_obj = self.db.query(Request).filter(Request.id == request_id).first()
             if not request_obj:
                 return JSONResponse(
                     status_code=404,
-                    content={"success": False, "data": {"title": "Solicitud no encontrada", "message": "No se encontró la solicitud de apertura"}}
+                    content={"success": False, "data": {"title": "Solicitud no encontrada"}}
                 )
 
             device = self.db.query(DeviceIot).filter(DeviceIot.id == request_obj.device_iot_id).first()
@@ -486,47 +486,58 @@ class DeviceRequestService:
                     content={"success": False, "data": "Dispositivo no encontrado"}
                 )
 
-            if status == 19:
-                request_obj.status = 19  # Rechazado
-                device.status = 12  # No Operativo
-                if justification:
-                    request_obj.justification = justification
+            request_obj.status = 17  # Aprobado
 
-            elif status == 17:
-                request_obj.status = 17  # Aprobado
-
-                # Si tiene fechas válidas
-                if request_obj.open_date and request_obj.close_date:
-                    device.status = 20  # En espera
-                else:
-                    device.status = 20  # También puede mantenerse en espera
-
+            if request_obj.open_date and request_obj.close_date:
+                device.status = 20  # En espera
             else:
-                return JSONResponse(
-                    status_code=400,
-                    content={"success": False, "data": "Estado de solicitud no reconocido"}
-                )
+                device.status = 20
 
             self.db.commit()
             self.db.refresh(request_obj)
 
             return JSONResponse(
                 status_code=200,
-                content={
-                    "success": True,
-                    "data": {
-                        "title": "Estado actualizado",
-                        "message": "La solicitud y el dispositivo han sido actualizados correctamente"
-                    }
-                }
+                content={"success": True, "data": {"title": "Solicitud aprobada"}}
             )
-
         except Exception as e:
             self.db.rollback()
             return JSONResponse(
                 status_code=500,
-                content={
-                    "success": False,
-                    "data": {"title": "Error al actualizar el estado", "message": str(e)}
-                }
+                content={"success": False, "data": {"title": "Error al aprobar", "message": str(e)}}
+            )
+
+    def reject_request(self, request_id: int, justification: Optional[str] = None) -> JSONResponse:
+        try:
+            request_obj = self.db.query(Request).filter(Request.id == request_id).first()
+            if not request_obj:
+                return JSONResponse(
+                    status_code=404,
+                    content={"success": False, "data": {"title": "Solicitud no encontrada"}}
+                )
+
+            device = self.db.query(DeviceIot).filter(DeviceIot.id == request_obj.device_iot_id).first()
+            if not device:
+                return JSONResponse(
+                    status_code=404,
+                    content={"success": False, "data": "Dispositivo no encontrado"}
+                )
+
+            request_obj.status = 19  # Rechazado
+            device.status = 12       # No operativo
+            if justification:
+                request_obj.justification = justification
+
+            self.db.commit()
+            self.db.refresh(request_obj)
+
+            return JSONResponse(
+                status_code=200,
+                content={"success": True, "data": {"title": "Solicitud rechazada"}}
+            )
+        except Exception as e:
+            self.db.rollback()
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "data": {"title": "Error al rechazar", "message": str(e)}}
             )

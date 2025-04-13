@@ -103,23 +103,20 @@ def get_device_detail(device_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener los detalles del dispositivo: {str(e)}")
 
-@router.post("/approve-reject-request/", response_model=dict)
-def approve_or_reject_request(
-    request_id: int,
-    status: int,
-    justification: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    try:
-        device_service = DeviceRequestService(db)
-        response = device_service.approve_or_reject_request(
-            request_id=request_id,
-            status=status,
-            justification=justification
-        )
-        return response
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al aprobar o rechazar la solicitud: {str(e)}")
 
+@router.post("/approve", response_model=dict)
+def approve_request(request_id: int, db: Session = Depends(get_db)):
+    try:
+        service = DeviceRequestService(db)
+        return service.approve_request(request_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al aprobar la solicitud: {str(e)}")
+
+
+@router.post("/reject", response_model=dict)
+def reject_request(request_id: int, justification: Optional[str] = None, db: Session = Depends(get_db)):
+    try:
+        service = DeviceRequestService(db)
+        return service.reject_request(request_id, justification)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al rechazar la solicitud: {str(e)}")

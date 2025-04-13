@@ -23,7 +23,7 @@ class RequestCreate(BaseModel):
     open_date: datetime = Field(..., title="Fecha de apertura")
     close_date: datetime = Field(..., title="Fecha de cierre")
     # request_date: datetime = Field(..., title="Fecha de la solicitud")
-    volume_water: int = Field(..., title="Volumen de agua en litros")
+    volume_water: Optional[int] = Field(..., title="Volumen de agua en litros")
 
     class Config:
         # Asegurarse de que se permita convertir de dict a modelo
