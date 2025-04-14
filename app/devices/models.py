@@ -177,6 +177,8 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    first_last_name = Column(String, nullable=False)
+    second_last_name = Column(String, nullable=False)
     document_number = Column(String, nullable=False)  
 
     # Relación con PropertyUser

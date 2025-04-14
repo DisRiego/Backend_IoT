@@ -285,7 +285,9 @@ class DeviceRequestService:
                     Lot.name.label("lot_name"),
                     Property.name.label("property_name"),
                     User.document_number.label("owner_document_number"),
-                    User.name.label("owner_full_name"),
+                    User.name.label("owner_name"),
+                    User.first_last_name.label("owner_first_last_name"),
+                    User.second_last_name.label("owner_second_last_name"),
                     TypeOpen.type_opening.label("request_type_name"),
                     Vars.name.label("status_name")
                 )
@@ -312,16 +314,12 @@ class DeviceRequestService:
                 lot_name,
                 property_name,
                 owner_doc,
-                owner_full_name,
+                owner_name,
+                owner_first_last_name,
+                owner_second_last_name,
                 request_type,
                 status_name
             ) = row
-
-            # Separar el nombre completo
-            parts = owner_full_name.split()
-            name = parts[0] if len(parts) > 0 else ""
-            first_last = parts[1] if len(parts) > 1 else ""
-            second_last = parts[2] if len(parts) > 2 else ""
 
             # Serializar la solicitud base
             data: Dict[str, Any] = jsonable_encoder(req)
@@ -331,9 +329,9 @@ class DeviceRequestService:
                 "lot_name": lot_name,
                 "property_name": property_name,
                 "owner_document_number": owner_doc,
-                "owner_name": name,
-                "owner_first_last_name": first_last,
-                "owner_second_last_name": second_last,
+                "owner_name": owner_name,
+                "owner_first_last_name": owner_first_last_name,
+                "owner_second_last_name": owner_second_last_name,
                 "request_type_name": request_type,
                 "status_name": status_name
             })
@@ -354,7 +352,6 @@ class DeviceRequestService:
                     }
                 }
             )
-
     async def update_request(
         self,
         request_id: int,
