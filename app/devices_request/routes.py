@@ -44,10 +44,13 @@ async def create_request(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al crear la solicitud: {str(e)}")
 
-@router.get("/request/{request_id}", response_model=Dict)
+@router.get("/{request_id}", response_model=Dict)
 def get_request_by_id(request_id: int, db: Session = Depends(get_db)):
-    device_service = DeviceRequestService(db)
-    return device_service.get_request_by_id(request_id)
+    """
+    Obtiene una solicitud por su ID.
+    """
+    service = DeviceRequestService(db)
+    return service.get_request_by_id(request_id)
 
 @router.get("/", response_model=Dict)
 def get_all_requests(db: Session = Depends(get_db)):

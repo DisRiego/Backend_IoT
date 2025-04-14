@@ -177,7 +177,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    document_number = Column(String, nullable=False)  # Número de documento
+    document_number = Column(String, nullable=False)  
 
     # Relación con PropertyUser
     property_users = relationship("PropertyUser", back_populates="user")

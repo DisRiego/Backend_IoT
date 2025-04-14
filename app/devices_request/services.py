@@ -268,17 +268,81 @@ class DeviceRequestService:
             )
 
 
-    def get_request_by_id(self, request_id):
+    def get_request_by_id(self, request_id: int) -> JSONResponse:
+        """
+        Obtiene una solicitud por su ID, incluyendo:
+         - Nombre del lote
+         - Nombre del predio
+         - Número de documento del dueño del lote
+         - name, first_last_name, second_last_name del dueño
+         - Nombre del tipo de solicitud
+         - Nombre del estado de la solicitud
+        """
         try:
-            request_data = self.db.query(Request).filter(Request.device_iot_id == request_id).first()
-            devices_data = jsonable_encoder(request_data)
+            row = (
+                self.db.query(
+                    Request,
+                    Lot.name.label("lot_name"),
+                    Property.name.label("property_name"),
+                    User.document_number.label("owner_document_number"),
+                    User.name.label("owner_full_name"),
+                    TypeOpen.type_opening.label("request_type_name"),
+                    Vars.name.label("status_name")
+                )
+                .join(DeviceIot, Request.device_iot_id == DeviceIot.id)
+                .join(Lot, Request.lot_id == Lot.id)
+                .join(PropertyLot, Lot.id == PropertyLot.lot_id)
+                .join(Property, PropertyLot.property_id == Property.id)
+                .join(PropertyUser, Property.id == PropertyUser.property_id)
+                .join(User, PropertyUser.user_id == User.id)
+                .join(TypeOpen, Request.type_opening_id == TypeOpen.id)
+                .join(Vars, Request.status == Vars.id)
+                .filter(Request.id == request_id)
+                .first()
+            )
+
+            if not row:
+                return JSONResponse(
+                    status_code=404,
+                    content={"success": False, "data": {"title": "Solicitud no encontrada"}}
+                )
+
+            (
+                req,
+                lot_name,
+                property_name,
+                owner_doc,
+                owner_full_name,
+                request_type,
+                status_name
+            ) = row
+
+            # Separar el nombre completo
+            parts = owner_full_name.split()
+            name = parts[0] if len(parts) > 0 else ""
+            first_last = parts[1] if len(parts) > 1 else ""
+            second_last = parts[2] if len(parts) > 2 else ""
+
+            # Serializar la solicitud base
+            data: Dict[str, Any] = jsonable_encoder(req)
+
+            # Añadir los campos extra
+            data.update({
+                "lot_name": lot_name,
+                "property_name": property_name,
+                "owner_document_number": owner_doc,
+                "owner_name": name,
+                "owner_first_last_name": first_last,
+                "owner_second_last_name": second_last,
+                "request_type_name": request_type,
+                "status_name": status_name
+            })
+
             return JSONResponse(
                 status_code=200,
-                content={
-                    "success": True,
-                    "data": devices_data
-                }
+                content={"success": True, "data": data}
             )
+
         except Exception as e:
             return JSONResponse(
                 status_code=500,
