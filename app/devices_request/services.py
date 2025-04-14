@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from app.devices.models import DeviceIot, Lot, User , Property , PropertyLot , PropertyUser
-from app.devices_request.models import Request, TypeOpen , Vars
+from app.devices_request.models import Request, TypeOpen , Vars , RequestRejectionReason , RequestRejection
 from app.devices.schemas import NotificationCreate
 
 class DeviceRequestService:
@@ -157,12 +157,11 @@ class DeviceRequestService:
         lot_id: int,
         user_id: int,
         device_iot_id: int,
-        open_date: datetime,
-        close_date: datetime,
+        open_date,   
+        close_date,  
         volume_water: Optional[int] = None 
-    ):
+    ) -> JSONResponse:
         try:
-            # 🧽 Limpiar fechas: quitar la 'Z' si vienen como string
             if isinstance(open_date, str):
                 open_date = open_date.rstrip("Z")
                 open_date = datetime.strptime(open_date, "%Y-%m-%dT%H:%M:%S")
@@ -170,10 +169,16 @@ class DeviceRequestService:
                 close_date = close_date.rstrip("Z")
                 close_date = datetime.strptime(close_date, "%Y-%m-%dT%H:%M:%S")
 
-            # Validar duplicados en estado pendiente
+            
+            if open_date.tzinfo is not None:
+                open_date = open_date.replace(tzinfo=None)
+            if close_date.tzinfo is not None:
+                close_date = close_date.replace(tzinfo=None)
+
+
             if self.db.query(Request).filter(
                 Request.device_iot_id == device_iot_id,
-                Request.status == 18
+                Request.status == 18  # pendiente
             ).first():
                 return JSONResponse(
                     status_code=400,
@@ -186,6 +191,7 @@ class DeviceRequestService:
                     }
                 )
 
+            # Volumen obligatorio para tipo 1
             if type_opening_id == 1 and not volume_water:
                 return JSONResponse(
                     status_code=400,
@@ -198,16 +204,17 @@ class DeviceRequestService:
                     }
                 )
 
+            # Crear la solicitud
             new_request = Request(
-                type_opening_id=type_opening_id,
-                status=18,
-                lot_id=lot_id,
-                user_id=user_id,
-                device_iot_id=device_iot_id,
-                open_date=open_date,
-                close_date=close_date,
-                volume_water=volume_water,
-                request_date=datetime.now()
+                type_opening_id = type_opening_id,
+                status          = 18,  # pendiente
+                lot_id          = lot_id,
+                user_id         = user_id,
+                device_iot_id   = device_iot_id,
+                open_date       = open_date,
+                close_date      = close_date,
+                volume_water    = volume_water,
+                request_date    = datetime.now()  # hora local del servidor
             )
             self.db.add(new_request)
             self.db.commit()
@@ -532,73 +539,38 @@ class DeviceRequestService:
 
 
     def approve_request(self, request_id: int) -> JSONResponse:
-        try:
-            request_obj = self.db.query(Request).filter(Request.id == request_id).first()
-            if not request_obj:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": {"title": "Solicitud no encontrada"}}
-                )
+        req = self.db.query(Request).get(request_id)
+        if not req:
+            return JSONResponse(status_code=404, content={"success": False, "data": {"title": "Solicitud no encontrada"}})
+        device = self.db.query(DeviceIot).get(req.device_iot_id)
+        if not device:
+            return JSONResponse(status_code=404, content={"success": False, "data": "Dispositivo no encontrado"})
+        req.status = 17   # Aprobado
+        device.status = 20 # En espera
+        self.db.commit()
+        return JSONResponse(status_code=200, content={"success": True, "data": {"title": "Solicitud aprobada"}})
 
-            device = self.db.query(DeviceIot).filter(DeviceIot.id == request_obj.device_iot_id).first()
-            if not device:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": "Dispositivo no encontrado"}
-                )
+    def reject_request(self, request_id: int, reason_id: int, comment: Optional[str] = None) -> JSONResponse:
+        req = self.db.query(Request).get(request_id)
+        if not req:
+            return JSONResponse(status_code=404, content={"success": False, "data": {"title": "Solicitud no encontrada"}})
+        device = self.db.query(DeviceIot).get(req.device_iot_id)
+        if not device:
+            return JSONResponse(status_code=404, content={"success": False, "data": "Dispositivo no encontrado"})
+        reason = self.db.query(RequestRejectionReason).get(reason_id)
+        if not reason:
+            return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Razón de rechazo no válida"}})
 
-            request_obj.status = 17  # Aprobado
+        # Crear entrada en tabla intermedia
+        rejection = RequestRejection(
+            request_id = request_id,
+            reason_id  = reason_id,
+            comment    = comment
+        )
+        self.db.add(rejection)
 
-            if request_obj.open_date and request_obj.close_date:
-                device.status = 20  # En espera
-            else:
-                device.status = 20
+        req.status   = 19   # Rechazado
+        device.status= 12   # No operativo
 
-            self.db.commit()
-            self.db.refresh(request_obj)
-
-            return JSONResponse(
-                status_code=200,
-                content={"success": True, "data": {"title": "Solicitud aprobada"}}
-            )
-        except Exception as e:
-            self.db.rollback()
-            return JSONResponse(
-                status_code=500,
-                content={"success": False, "data": {"title": "Error al aprobar", "message": str(e)}}
-            )
-
-    def reject_request(self, request_id: int, justification: Optional[str] = None) -> JSONResponse:
-        try:
-            request_obj = self.db.query(Request).filter(Request.id == request_id).first()
-            if not request_obj:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": {"title": "Solicitud no encontrada"}}
-                )
-
-            device = self.db.query(DeviceIot).filter(DeviceIot.id == request_obj.device_iot_id).first()
-            if not device:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": "Dispositivo no encontrado"}
-                )
-
-            request_obj.status = 19  # Rechazado
-            device.status = 12       # No operativo
-            if justification:
-                request_obj.justification = justification
-
-            self.db.commit()
-            self.db.refresh(request_obj)
-
-            return JSONResponse(
-                status_code=200,
-                content={"success": True, "data": {"title": "Solicitud rechazada"}}
-            )
-        except Exception as e:
-            self.db.rollback()
-            return JSONResponse(
-                status_code=500,
-                content={"success": False, "data": {"title": "Error al rechazar", "message": str(e)}}
-            )
+        self.db.commit()
+        return JSONResponse(status_code=200, content={"success": True, "data": {"title": "Solicitud rechazada"}})

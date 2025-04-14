@@ -140,7 +140,7 @@ def device_status_scheduler():
 
             for row in aperturas:
                 device = db.query(DeviceIot).filter(DeviceIot.id == row.device_iot_id).first()
-                if device and device.status != 11:
+                if device and device.status not in [11, 21, 22]:
                     print(f"[scheduler] → APERTURA Dispositivo {device.id} | open_date: {row.open_date}")
                     device.status = 11
                     try:

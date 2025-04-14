@@ -16,22 +16,27 @@ class DeviceBase(BaseModel):
 
 class RequestCreate(BaseModel):
     type_opening_id: int = Field(..., title="ID del tipo de apertura")
-    # status: int = Field(..., title="Estado de la solicitud")
-    lot_id: int = Field(..., title="ID del lote")
-    user_id: int = Field(..., title="ID del usuario")
-    device_iot_id: int = Field(..., title="ID del dispositivo IoT")
-    open_date: datetime = Field(..., title="Fecha de apertura")
-    close_date: datetime = Field(..., title="Fecha de cierre")
-    # request_date: datetime = Field(..., title="Fecha de la solicitud")
+    lot_id: int           = Field(..., title="ID del lote")
+    user_id: int          = Field(..., title="ID del usuario")
+    device_iot_id: int    = Field(..., title="ID del dispositivo IoT")
+    open_date: datetime   = Field(..., title="Fecha de apertura")
+    close_date: datetime  = Field(..., title="Fecha de cierre")
     volume_water: Optional[int] = Field(..., title="Volumen de agua en litros")
 
     class Config:
-        # Asegurarse de que se permita convertir de dict a modelo
         from_attributes = True
 
 class ApproveRequest(BaseModel):
     request_id: int = Field(..., title="ID de la solicitud a aprobar")
 
 class RejectRequest(BaseModel):
-    request_id: int = Field(..., title="ID de la solicitud a rechazar")
-    justification: Optional[str] = Field(None, title="Justificación del rechazo")
+    request_id: int      = Field(..., title="ID de la solicitud a rechazar")
+    justification: int   = Field(..., title="ID de la razón de rechazo (justification)")
+
+
+
+class RejectRequest(BaseModel):
+    request_id: int      = Field(..., title="ID de la solicitud a rechazar")
+    reason_id: int       = Field(..., title="ID de la razón de rechazo")
+    comment: Optional[str] = Field(None, title="Comentario adicional")
+
