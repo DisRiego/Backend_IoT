@@ -28,3 +28,10 @@ class RequestCreate(BaseModel):
     class Config:
         # Asegurarse de que se permita convertir de dict a modelo
         from_attributes = True
+
+class ApproveRequest(BaseModel):
+    request_id: int = Field(..., title="ID de la solicitud a aprobar")
+
+class RejectRequest(BaseModel):
+    request_id: int = Field(..., title="ID de la solicitud a rechazar")
+    justification: Optional[str] = Field(None, title="Justificación del rechazo")

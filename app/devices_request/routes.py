@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from app.database import get_db
 from app.devices_request.services import DeviceRequestService
-from app.devices_request.schemas import RequestCreate
+from app.devices_request.schemas import RequestCreate , ApproveRequest, RejectRequest
 
 router = APIRouter(prefix="/devices-request", tags=["DevicesRequest"])
 
@@ -107,19 +107,25 @@ def get_device_detail(device_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error al obtener los detalles del dispositivo: {str(e)}")
 
 
-@router.post("/approve", response_model=dict)
-def approve_request(request_id: int, db: Session = Depends(get_db)):
+@router.post("/approve", response_model=Dict)
+def approve_request(
+    body: ApproveRequest,
+    db: Session = Depends(get_db)
+):
+
     try:
         service = DeviceRequestService(db)
-        return service.approve_request(request_id)
+        return service.approve_request(body.request_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al aprobar la solicitud: {str(e)}")
 
-
-@router.post("/reject", response_model=dict)
-def reject_request(request_id: int, justification: Optional[str] = None, db: Session = Depends(get_db)):
+@router.post("/reject", response_model=Dict)
+def reject_request(
+    body: RejectRequest,
+    db: Session = Depends(get_db)
+):
     try:
         service = DeviceRequestService(db)
-        return service.reject_request(request_id, justification)
+        return service.reject_request(body.request_id, body.justification)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al rechazar la solicitud: {str(e)}")
