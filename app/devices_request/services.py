@@ -18,17 +18,23 @@ class DeviceRequestService:
     def get_all_requests(self) -> JSONResponse:
         """
         Obtiene todas las solicitudes, incluyendo:
-         - document_number del dueño del lote
-         - name del estado (Vars.name) de la solicitud
+        - document_number del dueño del lote
+        - name del estado (Vars.name) de la solicitud
+        - type_opening (TypeOpen.type_opening)
         """
         try:
-            # Query con joins
             rows = (
-                self.db.query(Request, Vars.name.label("status_name"), User.document_number.label("owner_document"))
-                .join(Vars, Request.status == Vars.id)                         # Estado de la solicitud
-                .join(PropertyLot, Request.lot_id == PropertyLot.lot_id)      # Relación lote ↔ propiedad
-                .join(PropertyUser, PropertyLot.property_id == PropertyUser.property_id)  # Relación propiedad ↔ usuario
-                .join(User, PropertyUser.user_id == User.id)                  # Usuario dueño
+                self.db.query(
+                    Request,
+                    Vars.name.label("status_name"),
+                    User.document_number.label("owner_document"),
+                    TypeOpen.type_opening.label("request_type_name")
+                )
+                .join(Vars, Request.status == Vars.id)
+                .join(PropertyLot, Request.lot_id == PropertyLot.lot_id)
+                .join(PropertyUser, PropertyLot.property_id == PropertyUser.property_id)
+                .join(User, PropertyUser.user_id == User.id)
+                .join(TypeOpen, Request.type_opening_id == TypeOpen.id)
                 .all()
             )
 
@@ -38,14 +44,12 @@ class DeviceRequestService:
                     content={"success": False, "data": []}
                 )
 
-            # Construir la lista de diccionarios
             result: List[Dict[str, Any]] = []
-            for req, status_name, owner_document in rows:
-                # Serializar el objeto Request
+            for req, status_name, owner_document, request_type_name in rows:
                 base = jsonable_encoder(req)
-                # Añadir campos extra
                 base["status_name"] = status_name
                 base["owner_document_number"] = owner_document
+                base["request_type_name"] = request_type_name
                 result.append(base)
 
             return JSONResponse(
