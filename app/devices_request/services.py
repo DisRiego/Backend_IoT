@@ -574,3 +574,47 @@ class DeviceRequestService:
 
         self.db.commit()
         return JSONResponse(status_code=200, content={"success": True, "data": {"title": "Solicitud rechazada"}})
+    
+
+    def get_all_request_rejection_reasons(self) -> JSONResponse:
+        """
+        Obtiene todas las razones de rechazo.
+        """
+        try:
+            # Consulta para obtener todas las razones de rechazo
+            rows = self.db.query(RequestRejectionReason).all()
+
+            if not rows:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Razones de rechazo no encontradas",
+                            "message": "No se encontraron razones de rechazo disponibles"
+                        }
+                    }
+                )
+
+            # Serializar las razones de rechazo
+            rejection_reasons_data = jsonable_encoder(rows)
+
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "data": rejection_reasons_data
+                }
+            )
+
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "data": {
+                        "title": "Error al obtener las razones de rechazo",
+                        "message": f"Ocurrió un error al intentar obtener las razones de rechazo: {str(e)}"
+                    }
+                }
+            )

@@ -69,6 +69,13 @@ def get_requests_by_user(user_id: int, db: Session = Depends(get_db)):
     result = service.get_requests_by_user(user_id)
     return result
 
+
+@router.get("/request-rejection-reasons/")
+def get_rejection_reasons(db: Session = Depends(get_db)):
+    service = DeviceRequestService(db)
+    return service.get_all_request_rejection_reasons()
+
+
 @router.put("/update-request/{request_id}", response_model=Dict)
 async def update_request(
     request_id: int,
