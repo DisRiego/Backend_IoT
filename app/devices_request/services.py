@@ -276,15 +276,6 @@ class DeviceRequestService:
 
 
     def get_request_by_id(self, request_id: int) -> JSONResponse:
-        """
-        Obtiene una solicitud por su ID, incluyendo:
-         - Nombre del lote
-         - Nombre del predio
-         - Número de documento del dueño del lote
-         - name, first_last_name, second_last_name del dueño
-         - Nombre del tipo de solicitud
-         - Nombre del estado de la solicitud
-        """
         try:
             row = (
                 self.db.query(
@@ -296,7 +287,9 @@ class DeviceRequestService:
                     User.first_last_name.label("owner_first_last_name"),
                     User.second_last_name.label("owner_second_last_name"),
                     TypeOpen.type_opening.label("request_type_name"),
-                    Vars.name.label("status_name")
+                    Vars.name.label("status_name"),
+                    RequestRejectionReason.description.label("rejection_reason_name"),
+                    RequestRejection.comment.label("rejection_comment")
                 )
                 .join(DeviceIot, Request.device_iot_id == DeviceIot.id)
                 .join(Lot, Request.lot_id == Lot.id)
@@ -306,6 +299,8 @@ class DeviceRequestService:
                 .join(User, PropertyUser.user_id == User.id)
                 .join(TypeOpen, Request.type_opening_id == TypeOpen.id)
                 .join(Vars, Request.status == Vars.id)
+                .outerjoin(RequestRejection, RequestRejection.request_id == Request.id)
+                .outerjoin(RequestRejectionReason, RequestRejection.reason_id == RequestRejectionReason.id)
                 .filter(Request.id == request_id)
                 .first()
             )
@@ -325,13 +320,13 @@ class DeviceRequestService:
                 owner_first_last_name,
                 owner_second_last_name,
                 request_type,
-                status_name
+                status_name,
+                rejection_reason_name,
+                rejection_comment
             ) = row
 
-            # Serializar la solicitud base
             data: Dict[str, Any] = jsonable_encoder(req)
 
-            # Añadir los campos extra
             data.update({
                 "lot_name": lot_name,
                 "property_name": property_name,
@@ -340,7 +335,9 @@ class DeviceRequestService:
                 "owner_first_last_name": owner_first_last_name,
                 "owner_second_last_name": owner_second_last_name,
                 "request_type_name": request_type,
-                "status_name": status_name
+                "status_name": status_name,
+                "rejection_reason_name": rejection_reason_name,
+                "rejection_comment": rejection_comment
             })
 
             return JSONResponse(
@@ -359,6 +356,8 @@ class DeviceRequestService:
                     }
                 }
             )
+
+        
     async def update_request(
         self,
         request_id: int,
