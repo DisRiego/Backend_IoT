@@ -16,7 +16,8 @@ from app.devices.schemas import (
     DeviceStatusChange,
     DeviceFilter,
     DeviceIotReadingUpdateByLot,
-    ServoCommand
+    ServoCommand,
+    ValveDevice
 )
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
@@ -269,43 +270,12 @@ def get_servo_command():
 
 
 @router.post("/devices/open-valve", response_model=Dict[str, str])
-def open_valve(device_id: int, db: Session = Depends(get_db)):
+def open_valve(payload: ValveDevice, db: Session = Depends(get_db)):
     """
     Intenta abrir la válvula si está dentro del rango de open_date y close_date.
-    Cambia estado a id: 22.
+    Cambia estado a vars.id = 22.
     """
-    now = datetime.now()
-
-    # Buscar solicitud aprobada activa
-    active_request = db.query(Request).filter(
-        Request.device_iot_id == device_id,
-        Request.status == 17,  # Aprobado
-        Request.open_date <= now,
-        Request.close_date >= now
-    ).first()
-
-    if not active_request:
-        raise HTTPException(status_code=403, detail="No hay una solicitud activa en este momento.")
-
-    device = db.query(DeviceIoT).filter(DeviceIoT.id == device_id).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Dispositivo no encontrado.")
-
-    # Estado abierto → vars.id = 22
-    device.status = 22
-    db.commit()
-
-    global _servo_action
-    _servo_action["action"] = "open"
-
-    return {"action": "open"}
-
-
-@router.post("/devices/close-valve", response_model=Dict[str, str])
-def close_valve(device_id: int, db: Session = Depends(get_db)):
-    """
-    Intenta cerrar la válvula si está dentro del rango. Cambia estado a id: 21.
-    """
+    device_id = payload.device_id
     now = datetime.now()
 
     active_request = db.query(Request).filter(
@@ -322,7 +292,37 @@ def close_valve(device_id: int, db: Session = Depends(get_db)):
     if not device:
         raise HTTPException(status_code=404, detail="Dispositivo no encontrado.")
 
-    # Estado cerrado → vars.id = 21
+    device.status = 22
+    db.commit()
+
+    global _servo_action
+    _servo_action["action"] = "open"
+
+    return {"action": "open"}
+
+
+@router.post("/devices/close-valve", response_model=Dict[str, str])
+def close_valve(payload: ValveDevice, db: Session = Depends(get_db)):
+    """
+    Intenta cerrar la válvula si está dentro del rango. Cambia estado a id: 21.
+    """
+    device_id = payload.device_id
+    now = datetime.now()
+
+    active_request = db.query(Request).filter(
+        Request.device_iot_id == device_id,
+        Request.status == 17,
+        Request.open_date <= now,
+        Request.close_date >= now
+    ).first()
+
+    if not active_request:
+        raise HTTPException(status_code=403, detail="No hay una solicitud activa en este momento.")
+
+    device = db.query(DeviceIoT).filter(DeviceIoT.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo no encontrado.")
+
     device.status = 21
     db.commit()
 

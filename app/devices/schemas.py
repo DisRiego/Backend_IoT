@@ -153,3 +153,12 @@ class NotificationResponse(NotificationBase):
 
 class ServoCommand(BaseModel):
     action: str
+
+
+class ValveDevice(BaseModel):
+    device_id: int = Field(..., title="ID del dispositivo IoT")
+
+    class Config:
+        schema_extra = {
+            "example": {"device_id": 7}
+        }
