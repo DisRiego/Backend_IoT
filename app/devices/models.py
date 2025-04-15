@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Float, Date, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Float, Date, Boolean , Numeric, func
 from sqlalchemy.orm import relationship , validates
 from app.database import Base
 from app.devices_request.models import Vars
@@ -202,3 +202,14 @@ class Notification(Base):
 
     def __repr__(self):
         return f"<Notification(id={self.id}, type={self.type}, user_id={self.user_id})>"
+
+
+
+
+class ConsumptionMeasurement(Base):
+    __tablename__ = "consumption_measurements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(Integer, ForeignKey("request.id", ondelete="CASCADE"), nullable=False)
+    final_volume = Column(Numeric(10, 2), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
