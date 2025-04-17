@@ -71,21 +71,49 @@ class DeviceRequestService:
 
     def get_requests_by_user(self, user_id: int) -> JSONResponse:
         """
-        Obtiene todas las solicitudes hechas por un usuario específico.
+        Obtiene todas las solicitudes hechas por un usuario específico,
+        incluyendo:
+        - document_number del dueño del lote
+        - name del estado (Vars.name) de la solicitud
+        - type_opening (TypeOpen.type_opening)
         """
         try:
-            rows: List[Request] = (
-                self.db
-                .query(Request)
-                .filter(Request.user_id == user_id)
+            rows = (
+                self.db.query(
+                    Request,
+                    Vars.name.label("status_name"),
+                    User.document_number.label("owner_document"),
+                    TypeOpen.type_opening.label("request_type_name")
+                )
+                .join(Vars, Request.status == Vars.id)
+                .join(PropertyLot, Request.lot_id == PropertyLot.lot_id)
+                .join(PropertyUser, PropertyLot.property_id == PropertyUser.property_id)
+                .join(User, PropertyUser.user_id == User.id)
+                .join(TypeOpen, Request.type_opening_id == TypeOpen.id)
+                .filter(Request.user_id == user_id)  # <-- filtramos por quien crea la solicitud
                 .order_by(Request.request_date.desc())
                 .all()
             )
-            data = jsonable_encoder(rows)
+
+            if not rows:
+                return JSONResponse(
+                    status_code=404,
+                    content={"success": False, "data": []}
+                )
+
+            result: List[Dict[str, Any]] = []
+            for req, status_name, owner_document, request_type_name in rows:
+                base = jsonable_encoder(req)
+                base["status_name"] = status_name
+                base["owner_document_number"] = owner_document
+                base["request_type_name"] = request_type_name
+                result.append(base)
+
             return JSONResponse(
                 status_code=200,
-                content={"success": True, "data": data}
+                content={"success": True, "data": result}
             )
+
         except Exception as e:
             return JSONResponse(
                 status_code=500,
@@ -93,10 +121,11 @@ class DeviceRequestService:
                     "success": False,
                     "data": {
                         "title": "Error al obtener solicitudes por usuario",
-                        "message": str(e)
+                        "message": f"Ocurrió un error al intentar obtener las solicitudes: {str(e)}"
                     }
                 }
             )
+        
     # Método auxiliar para crear notificaciones
     def create_notification(self, user_id: int, title: str, message: str, notification_type: str):
         """
