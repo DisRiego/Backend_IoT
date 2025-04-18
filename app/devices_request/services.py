@@ -512,7 +512,7 @@ class DeviceRequestService:
                 FROM request r
                 LEFT JOIN vars v ON v.id = r.status AND v.type = 'request_status'
                 WHERE r.device_iot_id = :device_id
-                ORDER BY r.open_date DESC
+                ORDER BY r.request_date DESC
                 LIMIT 1
             """), {"device_id": device_id}).fetchone()
 
