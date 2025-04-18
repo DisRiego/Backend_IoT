@@ -1,4 +1,4 @@
-from sqlalchemy import TIMESTAMP, Column, Date, Integer, String, DateTime, JSON, ForeignKey
+from sqlalchemy import TIMESTAMP, Column, Date, Integer, String, DateTime, JSON, ForeignKey , Text
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -17,19 +17,20 @@ class TypeOpen(Base):
 class Request(Base):
     __tablename__ = 'request'
 
-    id = Column(Integer, primary_key=True, index=True)
-    type_opening_id = Column(Integer)
-    status = Column(Integer)
-    lot_id = Column(Integer)
-    user_id = Column(Integer)
-    device_iot_id = Column(Integer)
-    open_date = Column(DateTime)
-    close_date = Column(DateTime)
-    request_date = Column(DateTime)
-    volume_water = Column(Integer)
+    id             = Column(Integer, primary_key=True, index=True)
+    type_opening_id= Column(Integer)
+    status         = Column(Integer)
+    lot_id         = Column(Integer)
+    user_id        = Column(Integer)
+    device_iot_id  = Column(Integer)
+    open_date      = Column(DateTime)
+    close_date     = Column(DateTime)
+    request_date   = Column(DateTime)
+    volume_water   = Column(Integer)
 
-    def __repr__(self):
-        return f"<Request(id={self.id}, open_date={self.open_date}, volume_water={self.volume_water})>"
+    # relación a las entradas de rechazo (0 o 1)
+    rejections     = relationship("RequestRejection", back_populates="request")
+
 
 class DeviceIoT(Base):
     __tablename__ = "device_iot"  # Se usa la tabla correcta
@@ -46,3 +47,25 @@ class DeviceIoT(Base):
 
     def __repr__(self):
         return f"<DeviceIoT(id={self.id}, serial_number={self.serial_number}, model={self.model})>"
+
+
+
+class RequestRejectionReason(Base):
+    __tablename__ = 'request_rejection_reason'
+
+    id          = Column(Integer, primary_key=True, index=True)
+    description = Column(String, nullable=False)
+
+    rejections  = relationship("RequestRejection", back_populates="reason")
+
+
+class RequestRejection(Base):
+    __tablename__ = 'request_rejection'
+
+    id         = Column(Integer, primary_key=True, index=True)
+    request_id = Column(Integer, ForeignKey('request.id'), nullable=False)
+    reason_id  = Column(Integer, ForeignKey('request_rejection_reason.id'), nullable=False)
+    comment    = Column(Text, nullable=True)
+
+    request    = relationship("Request", back_populates="rejections")
+    reason     = relationship("RequestRejectionReason", back_populates="rejections")

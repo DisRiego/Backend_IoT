@@ -5,8 +5,9 @@ from datetime import datetime
 from fastapi.encoders import jsonable_encoder
 from app.devices.schemas import DeviceAssignRequest, DeviceReassignRequest
 from app.database import get_db
+from app.devices_request.models import Request , DeviceIoT
 from app.devices.services import DeviceService
-from app.devices.models import User, Notification
+from app.devices.models import User, Notification 
 from app.devices.schemas import (
     DeviceCreate, 
     DeviceUpdate, 
@@ -14,7 +15,9 @@ from app.devices.schemas import (
     DeviceAssignRequest,
     DeviceStatusChange,
     DeviceFilter,
-    DeviceIotReadingUpdateByLot
+    DeviceIotReadingUpdateByLot,
+    ServoCommand,
+    ValveDevice
 )
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
@@ -236,3 +239,94 @@ def mark_all_notifications_as_read(user_id: int, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al marcar las notificaciones como leídas: {str(e)}")
 
+
+_servo_action: Dict[str, str] = {"action": None}
+
+@router.post("/devices/servo-command", response_model=Dict[str, str])
+def set_servo_command(command: ServoCommand):
+    """
+    Establece el comando del servo. action debe ser "open" o "close".
+    """
+    global _servo_action
+    if command.action not in ("open", "close"):
+        return {"error": "action debe ser 'open' o 'close'"}
+    _servo_action["action"] = command.action
+    return {"action": command.action}
+
+@router.get("/devices/servo-command", response_model=Dict[str,str])
+def get_servo_command():
+    """
+    Devuelve el comando pendiente para el servo y luego lo limpia.
+    """
+    global _servo_action
+    cmd = _servo_action.get("action")
+    # Una vez leído, lo borramos para no reenviarlo
+    _servo_action["action"] = None
+    return {"action": cmd or ""}
+
+
+
+
+
+
+@router.post("/devices/open-valve", response_model=Dict[str, str])
+def open_valve(payload: ValveDevice, db: Session = Depends(get_db)):
+    """
+    Intenta abrir la válvula si está dentro del rango de open_date y close_date.
+    Cambia estado a vars.id = 22.
+    """
+    device_id = payload.device_id
+    now = datetime.now()
+
+    active_request = db.query(Request).filter(
+        Request.device_iot_id == device_id,
+        Request.status == 17,
+        Request.open_date <= now,
+        Request.close_date >= now
+    ).first()
+
+    if not active_request:
+        raise HTTPException(status_code=403, detail="No hay una solicitud activa en este momento.")
+
+    device = db.query(DeviceIoT).filter(DeviceIoT.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo no encontrado.")
+
+    device.status = 22
+    db.commit()
+
+    global _servo_action
+    _servo_action["action"] = "open"
+
+    return {"action": "open"}
+
+
+@router.post("/devices/close-valve", response_model=Dict[str, str])
+def close_valve(payload: ValveDevice, db: Session = Depends(get_db)):
+    """
+    Intenta cerrar la válvula si está dentro del rango. Cambia estado a id: 21.
+    """
+    device_id = payload.device_id
+    now = datetime.now()
+
+    active_request = db.query(Request).filter(
+        Request.device_iot_id == device_id,
+        Request.status == 17,
+        Request.open_date <= now,
+        Request.close_date >= now
+    ).first()
+
+    if not active_request:
+        raise HTTPException(status_code=403, detail="No hay una solicitud activa en este momento.")
+
+    device = db.query(DeviceIoT).filter(DeviceIoT.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo no encontrado.")
+
+    device.status = 21
+    db.commit()
+
+    global _servo_action
+    _servo_action["action"] = "close"
+
+    return {"action": "close"}

@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from app.database import get_db
 from app.devices_request.services import DeviceRequestService
-from app.devices_request.schemas import RequestCreate
+from app.devices_request.schemas import RequestCreate , ApproveRequest, RejectRequest
 
 router = APIRouter(prefix="/devices-request", tags=["DevicesRequest"])
 
@@ -44,15 +44,37 @@ async def create_request(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al crear la solicitud: {str(e)}")
 
-@router.get("/request/{request_id}", response_model=Dict)
+@router.get("/{request_id}", response_model=Dict)
 def get_request_by_id(request_id: int, db: Session = Depends(get_db)):
-    device_service = DeviceRequestService(db)
-    return device_service.get_request_by_id(request_id)
+    """
+    Obtiene una solicitud por su ID.
+    """
+    service = DeviceRequestService(db)
+    return service.get_request_by_id(request_id)
 
-@router.get("/request/", response_model=Dict)
+@router.get("/", response_model=Dict)
 def get_all_requests(db: Session = Depends(get_db)):
-    device_service = DeviceRequestService(db)
-    return device_service.get_all_requests()
+    """
+    Obtiene todas las solicitudes de apertura/cierre de válvulas.
+    """
+    service = DeviceRequestService(db)
+    return service.get_all_requests()
+
+@router.get("/user/{user_id}", response_model=Dict)
+def get_requests_by_user(user_id: int, db: Session = Depends(get_db)):
+    """
+    Obtiene todas las solicitudes de un usuario.
+    """
+    service = DeviceRequestService(db)
+    result = service.get_requests_by_user(user_id)
+    return result
+
+
+@router.get("/request-rejection-reasons/")
+def get_rejection_reasons(db: Session = Depends(get_db)):
+    service = DeviceRequestService(db)
+    return service.get_all_request_rejection_reasons()
+
 
 @router.put("/update-request/{request_id}", response_model=Dict)
 async def update_request(
@@ -91,23 +113,22 @@ def get_device_detail(device_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener los detalles del dispositivo: {str(e)}")
 
-@router.post("/approve-reject-request/", response_model=dict)
-def approve_or_reject_request(
-    request_id: int,
-    status: int,
-    justification: Optional[str] = None,
+
+@router.post("/reject", response_model=Dict)
+def reject_request(
+    body: RejectRequest,
     db: Session = Depends(get_db)
 ):
-    try:
-        device_service = DeviceRequestService(db)
-        response = device_service.approve_or_reject_request(
-            request_id=request_id,
-            status=status,
-            justification=justification
-        )
-        return response
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al aprobar o rechazar la solicitud: {str(e)}")
-
+    service = DeviceRequestService(db)
+    return service.reject_request(
+        request_id=body.request_id,
+        reason_id=body.reason_id,
+        comment=body.comment
+    )
+@router.post("/approve", response_model=Dict)
+def approve_request(
+    body: ApproveRequest,
+    db: Session = Depends(get_db)
+):
+    service = DeviceRequestService(db)
+    return service.approve_request(body.request_id)
