@@ -1,79 +1,120 @@
 import json
 import pytest
-from fastapi.testclient import TestClient
-from app.main import app
-from app.database import get_db
-from app.devices.models import DeviceIot, Vars, MaintenanceInterval
-from app.devices.schemas import DeviceIotReadingUpdateByLot
-from app.devices.services import DeviceService
 from datetime import datetime, timedelta
-from sqlalchemy.orm import Session
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
+from sqlalchemy import text  # ✅ Import necesario para ejecutar texto SQL en db_session
+from app.devices.services import DeviceService
+from app.devices.models import Device, DeviceIot, DeviceType, Lot, Vars, ConsumptionMeasurement
+from app.devices_request.models import Request
+from app.devices.schemas import DeviceIotReadingUpdateByLot
+from app.database import SessionLocal
 import random
 
-client = TestClient(app)
-
-# Fixture para obtener la sesión de la BD; en esta prueba no eliminamos los dispositivos creados.
-@pytest.fixture(scope="function")
+# ✅ Fixture para db_session
+@pytest.fixture
 def db_session():
-    db = next(get_db())
-    devices_ids = []
-    yield db, devices_ids
-    devices_ids.clear()
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.rollback()
+        db.close()
 
-# Función auxiliar para crear un dispositivo de prueba.
-def create_test_device(db: Session, devices_ids: list, status_id: int = 11) -> int:
-    device_data = {
-        "serial_number": random.randint(100000000, 999999999),
-        "model": "DeviceTestModel",
-        "lot_id": 2,  # Se asume que ya existe un lote con id 2.
-        "installation_date": datetime.utcnow().isoformat(),
-        "maintenance_interval_id": 1,  # Se asume que existe este intervalo.
-        "estimated_maintenance_date": (datetime.utcnow() + timedelta(days=365)).isoformat(),
-        "status": status_id,  # Estado "Operativo" (ID 11)
-        "devices_id": 1,
-        "price_device": {"price": 2500},
-        "data_devices": {}  # Inicialmente vacío.
+# ✅ Fixture auxiliar para crear dispositivos base
+@pytest.fixture
+def create_base_device(db_session):
+    def _create():
+        device_type = db_session.query(DeviceType).first()
+        if not device_type:
+            device_type = DeviceType(name="TipoPrueba")
+            db_session.add(device_type)
+            db_session.commit()
+            db_session.refresh(device_type)
+
+        vars_ok = db_session.query(Vars).filter_by(id=11).first()
+        if not vars_ok:
+            vars_ok = Vars(id=11, name="Operativo")
+            db_session.add(vars_ok)
+            db_session.commit()
+
+        lot = db_session.query(Lot).filter_by(id=2).first()
+        if not lot:
+            lot = Lot(
+                id=2,
+                name="Lote Test",
+                longitude=1.0,
+                latitude=2.0,
+                extension=5.0,
+                real_estate_registration_number=1234,
+                planting_date=datetime.now().date(),
+                estimated_harvest_date=(datetime.now() + timedelta(days=90)).date(),
+                state=16
+            )
+            db_session.add(lot)
+            db_session.commit()
+            db_session.refresh(lot)
+
+        device_config = Device(devices_type_id=device_type.id, properties={})
+        db_session.add(device_config)
+        db_session.commit()
+        db_session.refresh(device_config)
+
+        device_iot = DeviceIot(
+            serial_number=random.randint(10000000, 99999999),
+            model="ModeloPrueba",
+            lot_id=lot.id,
+            devices_id=device_config.id,
+            status=11,
+            installation_date=datetime.now(),
+            estimated_maintenance_date=datetime.now() + timedelta(days=30),
+            data_devices={}
+        )
+        db_session.add(device_iot)
+        db_session.commit()
+        db_session.refresh(device_iot)
+
+        return device_iot
+    return _create
+
+# ✅ Pruebas
+
+@pytest.mark.parametrize("payload, expected_status, expected_fragment", [
+    ({"lot_id": 1}, 400, "Faltan device_id o lot_id"),
+    ({"device_id": 999999}, 400, "Faltan device_id o lot_id"),
+    ({"device_id": 999999, "lot_id": 1}, 404, "Dispositivo no encontrado")
+])
+def test_update_missing_and_not_found(db_session, payload, expected_status, expected_fragment):
+    service = DeviceService(db_session)
+    try:
+        reading = DeviceIotReadingUpdateByLot(**payload)
+    except Exception:
+        class Dummy:
+            def dict(self):
+                return payload
+        reading = Dummy()
+    response = service.update_device_reading_by_lot(reading)
+    body = json.loads(response.body)
+    assert response.status_code == expected_status
+    assert expected_fragment in str(body["data"])
+
+
+def test_update_simple_data_devices(db_session, create_base_device):
+    device = create_base_device()
+    service = DeviceService(db_session)
+
+    payload = {
+        "device_id": device.id,
+        "lot_id": device.lot_id,
+        "device_type_id": 1,
+        "sensor_value": 42,
+        "humidity": 55
     }
-    response = client.post("/devices/", json=device_data)
-    assert response.status_code == 201, f"Error creando dispositivo: {response.json()}"
-    device_id = response.json()["data"]["device"]["id"]
-    devices_ids.append(device_id)
-    return device_id
 
-# Prueba para el servicio update_device_reading_by_lot
-@pytest.mark.asyncio
-def test_update_device_reading_by_lot_model(db_session: Session):
-    db, devices_ids = db_session
+    reading = DeviceIotReadingUpdateByLot(**payload)
+    response = service.update_device_reading_by_lot(reading)
+    body = json.loads(response.body)
 
-    # 1. Crear un dispositivo de prueba.
-    device_id = create_test_device(db, devices_ids, status_id=11)
-
-    # 2. Construir la instancia del modelo DeviceIotReadingUpdateByLot con los datos de lectura.
-    #    Usamos model_validate en lugar de parse_obj si estás en Pydantic v2.
-    reading_model = DeviceIotReadingUpdateByLot.model_validate({
-        "device_id": device_id,
-        "lot_id": 2,               # Se asume que el dispositivo está en el lote 2.
-        "device_type_id": 1,       # Este campo se eliminará en el servicio.
-        "sensor_value": 88,
-        "temperature": 30
-    })
-
-    # 3. Instanciar el servicio y llamar al método update_device_reading_by_lot.
-    service = DeviceService(db)
-    response = service.update_device_reading_by_lot(reading_model)
-
-    # 4. Convertir la respuesta a un diccionario.
-    response_body = response.body.decode("utf-8")
-    resp_json = json.loads(response_body)
-
-    # 5. Verificar que la actualización fue exitosa.
-    assert response.status_code == 200, f"Error al actualizar lectura: {resp_json}"
-    assert resp_json["success"] is True, f"Actualización de lectura no exitosa: {resp_json}"
-
-    # 6. Verificar que en el dispositivo actualizado se encuentren los valores esperados en data_device.
-    updated_device = resp_json["data"]
-    data_device = updated_device.get("data_device", {})
-    assert data_device.get("sensor_value") == 88, "El valor de sensor_value no se actualizó correctamente"
-    assert data_device.get("temperature") == 30, "El valor de temperature no se actualizó correctamente"
-    
-    print("Dispositivo actualizado:", updated_device)
+    assert response.status_code == 200
+    assert body["success"] is True
+    assert body["data"]["data_devices"] == {"sensor_value": 42, "humidity": 55}
