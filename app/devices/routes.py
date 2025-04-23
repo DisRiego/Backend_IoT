@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime , timedelta
 from fastapi.encoders import jsonable_encoder
 from app.devices.schemas import DeviceAssignRequest, DeviceReassignRequest
 from app.database import get_db
@@ -20,7 +20,15 @@ from app.devices.schemas import (
     ValveDevice
 )
 
+
+
 router = APIRouter(prefix="/devices", tags=["Devices"])
+
+
+OFFSET_HOURS = -5 
+def now_local():
+    return datetime.utcnow() + timedelta(hours=OFFSET_HOURS)
+
 
 @router.get("/", response_model=Dict[str, Any])
 def get_all_devices(db: Session = Depends(get_db)):
@@ -263,7 +271,7 @@ def get_servo_command():
 @router.post("/devices/open-valve", response_model=Dict[str, str])
 def open_valve(payload: ValveDevice, db: Session = Depends(get_db)):
     device_id = payload.device_id
-    now = datetime.now()  # hora local
+    now = now_local()
     print(f"[open-valve] now={now.isoformat()} comprobando solicitud")
 
     active_request = (
@@ -297,7 +305,7 @@ def open_valve(payload: ValveDevice, db: Session = Depends(get_db)):
 @router.post("/devices/close-valve", response_model=Dict[str, str])
 def close_valve(payload: ValveDevice, db: Session = Depends(get_db)):
     device_id = payload.device_id
-    now = datetime.now()  # hora local
+    now = now_local()
     print(f"[close-valve] now={now.isoformat()} comprobando solicitud")
 
     active_request = (
