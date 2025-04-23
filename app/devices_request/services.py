@@ -5,7 +5,7 @@ from sqlalchemy import text
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
-from app.devices.models import DeviceIot, Lot, User , Property , PropertyLot , PropertyUser
+from app.devices.models import DeviceIot, Lot, User , Property , PropertyLot , PropertyUser , Notification
 from app.devices_request.models import Request, TypeOpen , Vars , RequestRejectionReason , RequestRejection
 from app.devices.schemas import NotificationCreate
 
@@ -126,31 +126,30 @@ class DeviceRequestService:
                 }
             )
         
-    # Método auxiliar para crear notificaciones
+    def _get_lot_owner_id(self, lot_id: int) -> Optional[int]:
+        row = (
+            self.db.query(PropertyUser.user_id)
+            .join(PropertyLot, PropertyLot.property_id == PropertyUser.property_id)
+            .filter(PropertyLot.lot_id == lot_id)
+            .first()
+        )
+        return row.user_id if row else None
+
     def create_notification(self, user_id: int, title: str, message: str, notification_type: str):
-        """
-        Crea una notificación para un usuario específico.
-        
-        Args:
-            user_id: ID del usuario
-            title: Título de la notificación
-            message: Mensaje detallado de la notificación
-            notification_type: Tipo de notificación (iot_request, iot_approval, etc.)
-            
-        Returns:
-            Resultado de la creación de la notificación
-        """
         try:
-            notification_data = NotificationCreate(
+            n = Notification(
                 user_id=user_id,
                 title=title,
                 message=message,
-                type=notification_type
+                type=notification_type,
+                created_at=datetime.utcnow()
             )
-            return self.user_service.create_notification(notification_data)
+            self.db.add(n)
+            self.db.commit()
+            return {"success": True, "data": n.id}
         except Exception as e:
-            print(f"[ERROR] No se pudo crear la notificación: {str(e)}")
-            return {"success": False, "data": None, "message": f"Error al crear notificación: {str(e)}"}
+            self.db.rollback()
+            return {"success": False, "message": str(e)}
 
 
     def get_type_open(self):
@@ -185,128 +184,137 @@ class DeviceRequestService:
             )
 
     async def create_request(
-        self,
-        type_opening_id: int,
-        lot_id: int,
-        user_id: int,
-        device_iot_id: int,
-        open_date,   
-        close_date,  
-        volume_water: Optional[int] = None 
-    ) -> JSONResponse:
-        try:
-            if isinstance(open_date, str):
-                open_date = open_date.rstrip("Z")
-                open_date = datetime.strptime(open_date, "%Y-%m-%dT%H:%M:%S")
-            if isinstance(close_date, str):
-                close_date = close_date.rstrip("Z")
-                close_date = datetime.strptime(close_date, "%Y-%m-%dT%H:%M:%S")
-
-            
-            if open_date.tzinfo is not None:
-                open_date = open_date.replace(tzinfo=None)
-            if close_date.tzinfo is not None:
-                close_date = close_date.replace(tzinfo=None)
-
-
-            if self.db.query(Request).filter(
-                Request.device_iot_id == device_iot_id,
-                Request.status == 18  # pendiente
-            ).first():
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "data": {
-                            "title": "Solicitud pendiente existente",
-                            "message": "Ya existe una solicitud pendiente para este dispositivo"
-                        }
-                    }
-                )
-
-            # Volumen obligatorio para tipo 1
-            if type_opening_id == 1 and not volume_water:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "data": {
-                            "title": "Volumen obligatorio",
-                            "message": "El volumen de agua es obligatorio para este tipo de apertura"
-                        }
-                    }
-                )
-
-            # Crear la solicitud
-            new_request = Request(
-                type_opening_id = type_opening_id,
-                status          = 18,  # pendiente
-                lot_id          = lot_id,
-                user_id         = user_id,
-                device_iot_id   = device_iot_id,
-                open_date       = open_date,
-                close_date      = close_date,
-                volume_water    = volume_water,
-                request_date    = datetime.now()  # hora local del servidor
-            )
-            self.db.add(new_request)
-            self.db.commit()
-            self.db.refresh(new_request)
-
-            type_opening = self.db.query(TypeOpen).filter(TypeOpen.id == type_opening_id).first()
-            type_opening_name = type_opening.type_opening if type_opening else "Desconocido"
-
-            lot = self.db.query(Lot).filter(Lot.id == lot_id).first()
-            lot_name = lot.name if lot else f"Lote {lot_id}"
-
+            self,
+            type_opening_id: int,
+            lot_id: int,
+            user_id: int,
+            device_iot_id: int,
+            open_date,
+            close_date,
+            volume_water: Optional[int] = None
+        ) -> JSONResponse:
             try:
-                self.create_notification(
+                if isinstance(open_date, str):
+                    open_date = open_date.rstrip("Z")
+                    open_date = datetime.strptime(open_date, "%Y-%m-%dT%H:%M:%S")
+                if isinstance(close_date, str):
+                    close_date = close_date.rstrip("Z")
+                    close_date = datetime.strptime(close_date, "%Y-%m-%dT%H:%M:%S")
+
+                if open_date.tzinfo is not None:
+                    open_date = open_date.replace(tzinfo=None)
+                if close_date.tzinfo is not None:
+                    close_date = close_date.replace(tzinfo=None)
+
+                if self.db.query(Request).filter(
+                    Request.device_iot_id == device_iot_id,
+                    Request.status == 18  # pendiente
+                ).first():
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "success": False,
+                            "data": {
+                                "title": "Solicitud pendiente existente",
+                                "message": "Ya existe una solicitud pendiente para este dispositivo"
+                            }
+                        }
+                    )
+
+                # Volumen obligatorio para tipo 1
+                if type_opening_id == 1 and not volume_water:
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "success": False,
+                            "data": {
+                                "title": "Volumen obligatorio",
+                                "message": "El volumen de agua es obligatorio para este tipo de apertura"
+                            }
+                        }
+                    )
+
+                # Crear la solicitud
+                new_request = Request(
+                    type_opening_id=type_opening_id,
+                    status=18,  # pendiente
+                    lot_id=lot_id,
                     user_id=user_id,
-                    title="Solicitud de apertura creada",
-                    message=f"Su solicitud de apertura para el lote {lot_name} ha sido registrada. Tipo: {type_opening_name}, fecha de apertura: {open_date.strftime('%d/%m/%Y %H:%M')}",
-                    notification_type="iot_request_created"
+                    device_iot_id=device_iot_id,
+                    open_date=open_date,
+                    close_date=close_date,
+                    volume_water=volume_water,
+                    request_date=datetime.now()  # hora local del servidor
+                )
+                self.db.add(new_request)
+                self.db.commit()
+                self.db.refresh(new_request)
+
+                type_opening = self.db.query(TypeOpen).filter(TypeOpen.id == type_opening_id).first()
+                type_opening_name = type_opening.type_opening if type_opening else "Desconocido"
+
+                lot = self.db.query(Lot).filter(Lot.id == lot_id).first()
+                lot_name = lot.name if lot else f"Lote {lot_id}"
+
+                try:
+                    # notificar al solicitante
+                    self.create_notification(
+                        user_id=user_id,
+                        title="Solicitud de apertura creada",
+                        message=f"Su solicitud #{new_request.id} de apertura para el lote {lot_name} ha sido registrada.",
+                        notification_type="iot_request_created"
+                    )
+
+                    # notificar al dueño del lote-predio
+                    owner_id = self._get_lot_owner_id(lot_id)
+                    if owner_id and owner_id != user_id:
+                        self.create_notification(
+                            user_id=owner_id,
+                            title="Solicitud en su lote",
+                            message=f"Se ha creado la solicitud #{new_request.id} en su lote {lot_name}.",
+                            notification_type="iot_request_owner"
+                        )
+
+                    # notificar a administradores
+                    admins = self.db.execute(text("""
+                        SELECT u.id FROM users u
+                        JOIN user_role ur ON u.id = ur.user_id
+                        WHERE ur.role_id = 2
+                    """)).fetchall()
+
+                    for admin in admins:
+                        self.create_notification(
+                            user_id=admin.id,
+                            title="Nueva solicitud de apertura",
+                            message=f"Solicitud #{new_request.id} para el lote {lot_name}.",
+                            notification_type="iot_request_admin"
+                        )
+                except Exception as notif_error:
+                    print(f"[ERROR] Error al enviar notificaciones: {notif_error}")
+
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "success": True,
+                        "data": {
+                            "title": "Solicitud de apertura",
+                            "message": "Solicitud creada exitosamente"
+                        }
+                    }
                 )
 
-                admins = self.db.execute(text("""
-                    SELECT u.id FROM users u
-                    JOIN user_role ur ON u.id = ur.user_id
-                    WHERE ur.role_id = 2
-                """)).fetchall()
-
-                for admin in admins:
-                    self.create_notification(
-                        user_id=admin.id,
-                        title="Nueva solicitud de apertura",
-                        message=f"Se ha recibido una nueva solicitud de apertura para el lote {lot_name}. Tipo: {type_opening_name}.",
-                        notification_type="iot_request_admin"
-                    )
-            except Exception as notif_error:
-                print(f"[ERROR] Error al enviar notificaciones: {notif_error}")
-
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "success": True,
-                    "data": {
-                        "title": "Solicitud de apertura",
-                        "message": "Solicitud creada exitosamente"
+            except Exception as e:
+                self.db.rollback()
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Error en creación",
+                            "message": f"Ocurrió un error al crear la solicitud: {str(e)}"
+                        }
                     }
-                }
-            )
-
-        except Exception as e:
-            self.db.rollback()
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False,
-                    "data": {
-                        "title": "Error en creación",
-                        "message": f"Ocurrió un error al crear la solicitud: {str(e)}"
-                    }
-                }
-            )
-
+                )
 
     def get_request_by_id(self, request_id: int) -> JSONResponse:
         try:
@@ -512,7 +520,7 @@ class DeviceRequestService:
                 FROM request r
                 LEFT JOIN vars v ON v.id = r.status AND v.type = 'request_status'
                 WHERE r.device_iot_id = :device_id
-                ORDER BY r.open_date DESC
+                ORDER BY r.request_date DESC
                 LIMIT 1
             """), {"device_id": device_id}).fetchone()
 
@@ -580,7 +588,27 @@ class DeviceRequestService:
         req.status = 17   # Aprobado
         device.status = 20 # En espera
         self.db.commit()
+
+        lot = self.db.query(Lot).get(req.lot_id)
+        lot_name = lot.name if lot else f"Lote {req.lot_id}"
+        owner_id = self._get_lot_owner_id(req.lot_id)
+
+        self.create_notification(
+            user_id=req.user_id,
+            title="Solicitud aprobada",
+            message=f"Tu solicitud #{req.id} para apertura en {lot_name} ha sido aprobada.",
+            notification_type="iot_request_approved"
+        )
+        if owner_id and owner_id != req.user_id:
+            self.create_notification(
+                user_id=owner_id,
+                title="Solicitud aprobada en tu lote",
+                message=f"La solicitud #{req.id} en tu lote {lot_name} ha sido aprobada.",
+                notification_type="iot_request_owner_approved"
+            )
+
         return JSONResponse(status_code=200, content={"success": True, "data": {"title": "Solicitud aprobada"}})
+
 
     def reject_request(self, request_id: int, reason_id: int, comment: Optional[str] = None) -> JSONResponse:
         req = self.db.query(Request).get(request_id)
@@ -593,19 +621,37 @@ class DeviceRequestService:
         if not reason:
             return JSONResponse(status_code=400, content={"success": False, "data": {"title": "Razón de rechazo no válida"}})
 
-        # Crear entrada en tabla intermedia
         rejection = RequestRejection(
-            request_id = request_id,
-            reason_id  = reason_id,
-            comment    = comment
+            request_id=request_id,
+            reason_id=reason_id,
+            comment=comment
         )
         self.db.add(rejection)
 
-        req.status   = 19   # Rechazado
-        device.status= 12   # No operativo
-
+        req.status = 19   # Rechazado
+        device.status = 12 # No operativo
         self.db.commit()
+
+        lot = self.db.query(Lot).get(req.lot_id)
+        lot_name = lot.name if lot else f"Lote {req.lot_id}"
+        owner_id = self._get_lot_owner_id(req.lot_id)
+
+        self.create_notification(
+            user_id=req.user_id,
+            title="Solicitud rechazada",
+            message=f"Tu solicitud #{req.id} para apertura en {lot_name} ha sido rechazada.",
+            notification_type="iot_request_rejected"
+        )
+        if owner_id and owner_id != req.user_id:
+            self.create_notification(
+                user_id=owner_id,
+                title="Solicitud rechazada en tu lote",
+                message=f"La solicitud #{req.id} en tu lote {lot_name} ha sido rechazada.",
+                notification_type="iot_request_owner_rejected"
+            )
+
         return JSONResponse(status_code=200, content={"success": True, "data": {"title": "Solicitud rechazada"}})
+
     
 
     def get_all_request_rejection_reasons(self) -> JSONResponse:

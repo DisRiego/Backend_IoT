@@ -108,7 +108,7 @@ class DeviceIotReadingUpdateByLot(BaseModel):
     device_id: int
     lot_id: int
     device_type_id: int
-    sensor_value: Optional[int] = None  
+    sensor_value: Optional[float] = None 
 
     class Config:
         orm_mode = True
