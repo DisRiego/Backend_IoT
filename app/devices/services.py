@@ -718,82 +718,120 @@ class DeviceService:
             raise Exception(f"Error al insertar datos: {str(e)}")
         
 
-    def update_device_reading_by_lot(self, reading: DeviceIotReadingUpdateByLot) -> Dict[str, Any]:
-        try:
-            data = reading.dict()
-            device_id = data.get("device_id")
-            lot_id = data.get("lot_id")
-            if device_id is None or lot_id is None:
-                return JSONResponse(
-                    status_code=400,
-                    content={"success": False, "data": "Faltan device_id o lot_id"}
-                )
-            device = self.db.query(DeviceIot).filter(DeviceIot.id == device_id).first()
-            if not device:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False, "data": "Dispositivo no encontrado"}
-                )
-            # Validar que el dispositivo pertenezca al lote indicado
-            if device.lot_id != lot_id:
-                device.lot_id = lot_id
+    def update_device_reading_by_lot(
+            self, reading: DeviceIotReadingUpdateByLot
+        ) -> Dict[str, Any]:
+            try:
+                # 1. Validación básica ------------------------------------------
+                data      = reading.dict()
+                device_id = data.get("device_id")
+                lot_id    = data.get("lot_id")
 
-            # Se eliminan las claves que no queremos almacenar en data_devices
-            for key in ["device_id", "lot_id", "device_type_id"]:
-                data.pop(key, None)
-            
-            # Se actualiza data_devices (guardamos las lecturas del Arduino)
-            device.data_devices = data
+                if device_id is None or lot_id is None:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"success": False, "data": "Faltan device_id o lot_id"}
+                    )
 
-            # Si se recibe "final_volume" se procesa el registro de consumo
-            if "final_volume" in data:
-                try:
-                    final_volume = float(data["final_volume"])
-                except Exception as conv_e:
-                    print(f"[final_volume] Error al convertir el valor: {conv_e}")
-                    final_volume = 0.0
-                print(f"[final_volume] Valor recibido: {final_volume}")
-
-                # Se asume que el request para la válvula es el que tiene device_iot_id = 9  
-                valve_device_id = 9  
-                # Buscar el último request aprobado (status 17) para la válvula y el lote indicado.
-                request_obj = (
-                    self.db.query(Request)
-                    .filter_by(device_iot_id=valve_device_id, lot_id=lot_id, status=17)
-                    .order_by(Request.id.desc())
+                device = (
+                    self.db.query(DeviceIot)
+                    .filter(DeviceIot.id == device_id)
                     .first()
                 )
-                if request_obj:
-                    # Buscar si ya existe un registro en consumption_measurements para este request.
-                    existing_measurement = self.db.query(ConsumptionMeasurement).filter(
-                        ConsumptionMeasurement.request_id == request_obj.id
-                    ).first()
-                    if existing_measurement:
-                        # Actualizamos el registro existente con el nuevo final_volume.
-                        print(f"[final_volume] Registro existente: Request {request_obj.id} con valor {existing_measurement.final_volume} L. Se actualiza a {final_volume} L.")
-                        existing_measurement.final_volume = final_volume
-                    else:
-                        new_measurement = ConsumptionMeasurement(
-                            request_id=request_obj.id,
-                            final_volume=final_volume
-                        )
-                        self.db.add(new_measurement)
-                        print(f"[final_volume] Guardado: Request {request_obj.id} -> {final_volume} L")
-                else:
-                    print(f"[final_volume] No se encontró request aprobado para válvula con lot_id={lot_id}.")
+                if not device:
+                    return JSONResponse(
+                        status_code=404,
+                        content={"success": False, "data": "Dispositivo no encontrado"}
+                    )
 
-            self.db.commit()
-            self.db.refresh(device)
-            return JSONResponse(
-                status_code=200,
-                content={"success": True, "data": jsonable_encoder(device)}
-            )
-        except Exception as e:
-            self.db.rollback()
-            return JSONResponse(
-                status_code=500,
-                content={"success": False, "data": {"title": "Error al actualizar lectura", "message": str(e)}}
-            )
+                # 2. Asegurar que el dispositivo pertenece al lote --------------
+                if device.lot_id != lot_id:
+                    device.lot_id = lot_id
+
+                # 3. Guardar lecturas en data_devices ---------------------------
+                for key in ("device_id", "lot_id", "device_type_id"):
+                    data.pop(key, None)
+
+                device.data_devices = data
+
+                # 4. Procesar final_volume --------------------------------------
+                if "final_volume" in data:
+                    try:
+                        final_volume = float(data["final_volume"])
+                    except (ValueError, TypeError):
+                        final_volume = 0.0
+                    print(f"[final_volume] Valor recibido: {final_volume}")
+
+                    valve_device_id = 9
+                    request_obj = (
+                        self.db.query(Request)
+                        .filter_by(
+                            device_iot_id=valve_device_id,
+                            lot_id=lot_id,
+                            status=17        # Aprobado
+                        )
+                        .order_by(Request.id.desc())
+                        .first()
+                    )
+
+                    if request_obj:
+                        existing = (
+                            self.db.query(ConsumptionMeasurement)
+                            .filter(ConsumptionMeasurement.request_id == request_obj.id)
+                            .first()
+                        )
+
+                        if existing:
+                            # ──► Actualiza SÓLO si llega un valor >0
+                            #     o si el actual es 0 (es decir, primera actualización real)
+                            if final_volume > 0 or existing.final_volume == 0:
+                                print(
+                                    f"[final_volume] Actualizando Request {request_obj.id}: "
+                                    f"{existing.final_volume} → {final_volume} L"
+                                )
+                                existing.final_volume = final_volume
+                            else:
+                                print(
+                                    f"[final_volume] Se conserva {existing.final_volume} L "
+                                    f"(ignorado {final_volume})"
+                                )
+                        else:
+                            new_measurement = ConsumptionMeasurement(
+                                request_id=request_obj.id,
+                                final_volume=final_volume
+                            )
+                            self.db.add(new_measurement)
+                            print(
+                                f"[final_volume] Guardado: Request {request_obj.id} "
+                                f"-> {final_volume} L"
+                            )
+                    else:
+                        print(
+                            f"[final_volume] No se encontró request aprobado para "
+                            f"válvula (lot_id={lot_id})"
+                        )
+
+                # 5. Commit ------------------------------------------------------
+                self.db.commit()
+                self.db.refresh(device)
+                return JSONResponse(
+                    status_code=200,
+                    content={"success": True, "data": jsonable_encoder(device)}
+                )
+
+            except Exception as e:
+                self.db.rollback()
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "success": False,
+                        "data": {
+                            "title": "Error al actualizar lectura",
+                            "message": str(e)
+                        }
+                    }
+                )
+
 
 
 

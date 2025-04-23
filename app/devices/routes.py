@@ -148,16 +148,12 @@ def filter_devices(
         
 
 @router.post("/sensor_update_by_lot", response_model=Dict[str, Any])
-def update_sensor_data_by_lot(data: dict, db: Session = Depends(get_db)):
-    """
-    Recibe el JSON del Arduino y actualiza el registro operativo en device_iot.
-    Se espera un JSON con, al menos:
-      - device_id: ID del dispositivo operativo
-      - lot_id: ID del lote
-      - (otros campos que se guardarán en price_device)
-    """
+def update_sensor_data_by_lot(
+    reading: DeviceIotReadingUpdateByLot,
+    db: Session = Depends(get_db)
+):
     device_service = DeviceService(db)
-    return device_service.update_device_reading_by_lot(data)
+    return device_service.update_device_reading_by_lot(reading)
 
 @router.get("/notifications/user/{user_id}", response_model=Dict[str, Any])
 def get_user_notifications(
