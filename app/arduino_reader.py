@@ -1,8 +1,4 @@
-"""
-arduino_reader.py – scheduler de estados
-────────────────────────────────────────────────────────
-Mantiene estados válvula: 12 / 20 / 11 / 21
-"""
+
 
 import os, threading, time, requests
 from datetime import datetime, timedelta
@@ -12,11 +8,11 @@ from app.devices.models import DeviceIot
 from app.devices_request.models import Request
 
 # ─── Configuración ────────────────────────────────────
-PORT           = os.getenv("PORT", "8000")          # Render define PORT
-SERVO_CMD_URL  = f"http://localhost:{PORT}/devices/devices/servo-command"
+PORT          = os.getenv("PORT", "8000")                # Render define PORT
+SERVO_CMD_URL = f"http://localhost:{PORT}/devices/devices/servo-command"
 
-VALVE_TYPE_ID  = 2          # ← id del DeviceType “válvula”
-OFFSET_HOURS   = -5         # desfase de tu hora local versus UTC
+VALVE_TYPE_ID = 2        # ID del DeviceType “válvula”
+OFFSET_HOURS  = -5       # desfase local (UTC-5)
 
 # ─── Scheduler principal ─────────────────────────────
 def device_status_scheduler() -> None:
@@ -24,14 +20,13 @@ def device_status_scheduler() -> None:
     while True:
         db = SessionLocal()
         try:
-            # Hora local naïve (sin tz-info)
+            # Hora local naive (sin tz-info)
             now = datetime.utcnow() + timedelta(hours=OFFSET_HOURS)
 
             # ------------------------------------------------------------------
-            # 1) Sin solicitud activa  → 12
+            # 1) Sin solicitud activa → 12
             # ------------------------------------------------------------------
             for dev in db.query(DeviceIot).filter(DeviceIot.devices_id == VALVE_TYPE_ID):
-                # ¿Hay una solicitud aprobada y vigente?
                 active = db.execute(text("""
                     SELECT 1
                       FROM request
@@ -46,17 +41,17 @@ def device_status_scheduler() -> None:
                     print(f"[scheduler] {dev.id} → 12 (sin solicitud)")
 
             # ------------------------------------------------------------------
-            # 2) Cierre vencido  → 21 (si estaba abierta) + close
-            #                      → 12 (si ya estaba cerrada)
+            # 2) Cierre vencido
+            #    – Si estaba abierta  → 21  + close
+            #    – Si ya estaba cerrada → 12
             # ------------------------------------------------------------------
             rows = db.execute(text("""
                 SELECT r.device_iot_id, r.close_date, r.open_date
                   FROM request r
-                  JOIN (  SELECT MAX(id) max_id
-                            FROM request
-                           WHERE status = 17
-                           GROUP BY device_iot_id
-                       ) x ON r.id = x.max_id
+                  JOIN ( SELECT MAX(id) max_id
+                           FROM request
+                          WHERE status = 17
+                          GROUP BY device_iot_id ) x ON r.id = x.max_id
                  WHERE r.close_date < :now
             """), {"now": now}).fetchall()
 
@@ -65,13 +60,12 @@ def device_status_scheduler() -> None:
                 if not dev:
                     continue
 
-                # Valida fechas mal puestas (open > close) y las descarta
+                # Fechas incoherentes (open > close) → descarta
                 if odate and odate > cdate:
                     print(f"[scheduler] ⚠ Discarded bad dates dev={dev.id}")
                     continue
 
-                # Si la válvula está /estaba/ abierta ⇒ 21 y enviamos 'close'
-                if dev.status in (11, 22):
+                if dev.status == 11:                     # estaba abierta
                     dev.status = 21
                     print(f"[scheduler] {dev.id} cierre {cdate} → 21")
                     try:
@@ -80,29 +74,26 @@ def device_status_scheduler() -> None:
                                       timeout=2)
                     except requests.RequestException as e:
                         print("[scheduler] POST close:", e)
-
-                # Si ya está cerrada o en otro estado, garantizamos 12
-                elif dev.status != 12:
+                elif dev.status != 12:                  # cualquier otro
                     dev.status = 12
                     print(f"[scheduler] {dev.id} cierre {cdate} → 12")
 
             # ------------------------------------------------------------------
-            # 3) Apertura vigente  → 11  + open
+            # 3) Apertura vigente → 11  + open
             # ------------------------------------------------------------------
             rows = db.execute(text("""
                 SELECT r.device_iot_id, r.open_date
                   FROM request r
-                  JOIN (  SELECT MAX(id) max_id
-                            FROM request
-                           WHERE status = 17
-                           GROUP BY device_iot_id
-                       ) x ON r.id = x.max_id
+                  JOIN ( SELECT MAX(id) max_id
+                           FROM request
+                          WHERE status = 17
+                          GROUP BY device_iot_id ) x ON r.id = x.max_id
                  WHERE :now BETWEEN r.open_date AND r.close_date
             """), {"now": now}).fetchall()
 
             for dev_id, odate in rows:
                 dev = db.query(DeviceIot).get(dev_id)
-                if dev and dev.status not in (11, 21, 22):
+                if dev and dev.status not in (11, 21):
                     dev.status = 11
                     print(f"[scheduler] {dev.id} apertura {odate} → 11")
                     try:
@@ -113,16 +104,15 @@ def device_status_scheduler() -> None:
                         print("[scheduler] POST open:", e)
 
             # ------------------------------------------------------------------
-            # 4) Solicitud futura  → 20
+            # 4) Solicitud futura → 20
             # ------------------------------------------------------------------
             rows = db.execute(text("""
                 SELECT r.device_iot_id, r.open_date
                   FROM request r
-                  JOIN (  SELECT MAX(id) max_id
-                            FROM request
-                           WHERE status = 17
-                           GROUP BY device_iot_id
-                       ) x ON r.id = x.max_id
+                  JOIN ( SELECT MAX(id) max_id
+                           FROM request
+                          WHERE status = 17
+                          GROUP BY device_iot_id ) x ON r.id = x.max_id
                  WHERE r.open_date > :now
             """), {"now": now}).fetchall()
 
