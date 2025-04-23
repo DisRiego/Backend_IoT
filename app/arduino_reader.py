@@ -26,7 +26,7 @@ def device_status_scheduler():
     while True:
         db = SessionLocal()
         try:
-            now = datetime.utcnow()
+            now = datetime.now()
 
             # 1) Sin solicitud activa → 12
             for dev in db.query(DeviceIot).all():
