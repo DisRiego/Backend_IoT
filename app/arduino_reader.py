@@ -6,7 +6,7 @@ arduino_reader.py  –  scheduler de estados
 """
 
 import os, threading, time, requests
-from datetime import datetime
+from datetime import datetime , timedelta
 from sqlalchemy import text
 from app.database import SessionLocal
 from app.devices.models import DeviceIot
@@ -26,7 +26,7 @@ def device_status_scheduler():
     while True:
         db = SessionLocal()
         try:
-            now = datetime.now()
+            now = datetime.utcnow() - timedelta(hours=5)
 
             # 1) Sin solicitud activa → 12
             for dev in db.query(DeviceIot).all():
