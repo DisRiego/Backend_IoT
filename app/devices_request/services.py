@@ -142,7 +142,7 @@ class DeviceRequestService:
                 title=title,
                 message=message,
                 type=notification_type,
-                created_at=datetime.utcnow()
+                created_at=datetime.now()
             )
             self.db.add(n)
             self.db.commit()
