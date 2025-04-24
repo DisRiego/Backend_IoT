@@ -8,13 +8,12 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from app.database import SessionLocal
 from app.devices.models import DeviceIot
-from app.devices_request.models import Request
 
 PORT          = os.getenv("PORT", "8000")
 SERVO_CMD_URL = f"http://localhost:{PORT}/devices/devices/servo-command"
 
 VALVE_TYPE_ID = 2
-OFFSET_HOURS  = -5
+OFFSET_HOURS  = -5  # UTC-5 (Bogotá)
 
 def device_status_scheduler() -> None:
     print("[scheduler] hilo iniciado")
@@ -23,7 +22,7 @@ def device_status_scheduler() -> None:
         try:
             now = datetime.utcnow() + timedelta(hours=OFFSET_HOURS)
 
-            # 1) Sin solicitud activa → 12 (No operativo)
+            # 1) Sin solicitud activa → status 12
             for dev in db.query(DeviceIot).filter(DeviceIot.devices_id == VALVE_TYPE_ID):
                 active = db.execute(text("""
                     SELECT 1
@@ -37,7 +36,7 @@ def device_status_scheduler() -> None:
                     dev.status = 12
                     print(f"[scheduler] {dev.id} → 12 (sin solicitud)")
 
-            # 2) Cierre vencido → siempre enviamos "close"
+            # 2) Cierre vencido → status 21 + siempre POST "close"
             rows = db.execute(text("""
                 SELECT r.device_iot_id, r.close_date, r.open_date
                   FROM request r
@@ -50,7 +49,7 @@ def device_status_scheduler() -> None:
                  WHERE r.close_date < :now
             """), {"now": now}).fetchall()
 
-            for dev_id, cdate, odate in rows:
+            for dev_id, cdate, _ in rows:
                 dev = db.query(DeviceIot).get(dev_id)
                 if not dev:
                     continue
@@ -59,11 +58,11 @@ def device_status_scheduler() -> None:
                     print(f"[scheduler] {dev.id} expiró close_date {cdate} → 21")
                     try:
                         requests.post(SERVO_CMD_URL, json={"action": "close"}, timeout=2)
-                        print(f"[scheduler] POST close a servo-command para dev {dev.id}")
+                        print(f"[scheduler] POST close para dev {dev.id}")
                     except requests.RequestException as e:
                         print("[scheduler] POST close:", e)
 
-            # 3) Apertura vigente → 22 + open
+            # 3) Apertura vigente → status 22 + siempre POST "open"
             rows = db.execute(text("""
                 SELECT r.device_iot_id, r.open_date
                   FROM request r
@@ -78,15 +77,16 @@ def device_status_scheduler() -> None:
 
             for dev_id, odate in rows:
                 dev = db.query(DeviceIot).get(dev_id)
-                if dev and dev.status not in (22, 21):
+                if dev and dev.status != 22:
                     dev.status = 22
                     print(f"[scheduler] {dev.id} apertura {odate} → 22")
                     try:
                         requests.post(SERVO_CMD_URL, json={"action": "open"}, timeout=2)
+                        print(f"[scheduler] POST open para dev {dev.id}")
                     except requests.RequestException as e:
                         print("[scheduler] POST open:", e)
 
-            # 4) Solicitud futura → 20 (En espera)
+            # 4) Solicitud futura → status 20
             rows = db.execute(text("""
                 SELECT r.device_iot_id, r.open_date
                   FROM request r
