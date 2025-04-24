@@ -1,3 +1,5 @@
+# app/arduino_reader.py
+
 import os
 import threading
 import time
@@ -8,14 +10,12 @@ from app.database import SessionLocal
 from app.devices.models import DeviceIot
 from app.devices_request.models import Request
 
-# ─── Configuración ────────────────────────────────────
 PORT          = os.getenv("PORT", "8000")                # Render define PORT
 SERVO_CMD_URL = f"http://localhost:{PORT}/devices/devices/servo-command"
 
 VALVE_TYPE_ID = 2        # ID del DeviceType “válvula”
 OFFSET_HOURS  = -5       # desfase local (UTC-5)
 
-# ─── Scheduler principal ─────────────────────────────
 def device_status_scheduler() -> None:
     print("[scheduler] hilo iniciado")
     while True:
@@ -33,14 +33,11 @@ def device_status_scheduler() -> None:
                        AND :now BETWEEN open_date AND close_date
                      LIMIT 1
                 """), {"dev_id": dev.id, "now": now}).first()
-
                 if not active and dev.status != 12:
                     dev.status = 12
                     print(f"[scheduler] {dev.id} → 12 (sin solicitud)")
 
             # 2) Cierre vencido
-            #    – Si estaba abierta  → 21  + close
-            #    – Si ya estaba cerrada → 12
             rows = db.execute(text("""
                 SELECT r.device_iot_id, r.close_date, r.open_date
                   FROM request r
@@ -57,11 +54,9 @@ def device_status_scheduler() -> None:
                 dev = db.query(DeviceIot).get(dev_id)
                 if not dev:
                     continue
-
                 if odate and odate > cdate:
                     print(f"[scheduler] ⚠ Discarded bad dates dev={dev.id}")
                     continue
-
                 if dev.status == 22:
                     dev.status = 21
                     print(f"[scheduler] {dev.id} cierre {cdate} → 21")
@@ -125,6 +120,5 @@ def device_status_scheduler() -> None:
 
         time.sleep(5)
 
-# ─── Lanzar hilo en startup ───────────────────────────
 def start_background_jobs() -> None:
     threading.Thread(target=device_status_scheduler, daemon=True).start()
