@@ -948,3 +948,30 @@ class DeviceService:
                     "message": str(e)
                 }}
             )
+        
+    def get_meter_consumption(self, device_iot_id: int) -> JSONResponse:
+        measurements = (
+            self.db.query(ConsumptionMeasurement)
+                   .join(Request, ConsumptionMeasurement.request_id == Request.id)
+                   .filter(Request.device_iot_id == device_iot_id)
+                   .order_by(ConsumptionMeasurement.created_at.desc())
+                   .all()
+        )
+        data = [
+            {
+                "request_id": m.request_id,
+                "final_volume": float(m.final_volume),
+                "timestamp": m.created_at.isoformat()
+            }
+            for m in measurements
+        ]
+        return JSONResponse(status_code=200, content={"success": True, "data": data})
+
+    def get_current_meter_reading(self, device_id: int) -> JSONResponse:
+        device = self.db.query(DeviceIot).get(device_id)
+        if not device:
+            return JSONResponse(status_code=404, content={"success": False, "message": "Medidor no encontrado"})
+        value = None
+        if device.data_devices and "sensor_value" in device.data_devices:
+            value = device.data_devices["sensor_value"]
+        return JSONResponse(status_code=200, content={"success": True, "data": {"sensor_value": value}})

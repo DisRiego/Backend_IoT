@@ -334,3 +334,19 @@ def close_valve(payload: ValveDevice, db: Session = Depends(get_db)):
     _servo_action["action"] = "close"
 
     return {"action": "close"}
+
+@router.get("/consumption/{device_id}", response_model=Dict[str, Any])
+def get_meter_consumption(device_id: int, db: Session = Depends(get_db)):
+    """
+    Historial de volúmenes finales del medidor (tabla consumption_measurements).
+    """
+    svc = DeviceService(db)
+    return svc.get_meter_consumption(device_id)
+
+@router.get("/meter/current/{device_id}", response_model=Dict[str, Any])
+def get_current_meter_reading(device_id: int, db: Session = Depends(get_db)):
+    """
+    Lectura actual acumulada del medidor (campo data_devices.sensor_value).
+    """
+    svc = DeviceService(db)
+    return svc.get_current_meter_reading(device_id)
