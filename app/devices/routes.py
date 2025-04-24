@@ -246,20 +246,20 @@ def mark_all_notifications_as_read(user_id: int, db: Session = Depends(get_db)):
 
 _servo_action: Dict[str, str] = {"action": None}
 
+@router.post("/devices/servo-command", response_model=Dict[str, str])
+def set_servo_command(command: ServoCommand):
+    """
+    Establece el comando del servo. action debe ser "open" o "close".
+    """
+    global _servo_action
+    if command.action not in ("open", "close"):
+        return {"error": "action debe ser 'open' o 'close'"}
+    _servo_action["action"] = command.action
+    return {"action": command.action}
+
 @router.get("/devices/servo-command", response_model=Dict[str, str])
 def get_servo_command():
     cmd = _servo_action.get("action")
-    _servo_action["action"] = None
-    return {"action": cmd or ""}
-
-@router.get("/devices/servo-command", response_model=Dict[str,str])
-def get_servo_command():
-    """
-    Devuelve el comando pendiente para el servo y luego lo limpia.
-    """
-    global _servo_action
-    cmd = _servo_action.get("action")
-    # Una vez leído, lo borramos para no reenviarlo
     _servo_action["action"] = None
     return {"action": cmd or ""}
 
