@@ -1,4 +1,4 @@
-# arduino_reader.py
+# arduino_reader.py  (reordenado: expirado → apertura → futura → inactivo)
 
 import os
 import threading
@@ -11,9 +11,8 @@ from app.devices.models import DeviceIot
 
 PORT          = os.getenv("PORT", "8000")
 SERVO_CMD_URL = f"http://localhost:{PORT}/devices/devices/servo-command"
-
 VALVE_TYPE_ID = 2
-OFFSET_HOURS  = -5  # UTC-5 (Bogotá)
+OFFSET_HOURS  = -5  # UTC-5 Bogotá
 
 def device_status_scheduler() -> None:
     print("[scheduler] hilo iniciado")
@@ -22,23 +21,9 @@ def device_status_scheduler() -> None:
         try:
             now = datetime.utcnow() + timedelta(hours=OFFSET_HOURS)
 
-            # 1) Sin solicitud activa → status 12
-            for dev in db.query(DeviceIot).filter(DeviceIot.devices_id == VALVE_TYPE_ID):
-                active = db.execute(text("""
-                    SELECT 1
-                      FROM request
-                     WHERE device_iot_id = :dev_id
-                       AND status = 17
-                       AND :now BETWEEN open_date AND close_date
-                     LIMIT 1
-                """), {"dev_id": dev.id, "now": now}).first()
-                if not active and dev.status != 12:
-                    dev.status = 12
-                    print(f"[scheduler] {dev.id} → 12 (sin solicitud)")
-
-            # 2) Cierre vencido → status 21 + siempre POST "close"
+            # ─── 1) Cierre vencido ─────────────────────────────────────
             rows = db.execute(text("""
-                SELECT r.device_iot_id, r.close_date, r.open_date
+                SELECT r.device_iot_id, r.close_date
                   FROM request r
                   JOIN (
                       SELECT MAX(id) max_id
@@ -49,7 +34,7 @@ def device_status_scheduler() -> None:
                  WHERE r.close_date < :now
             """), {"now": now}).fetchall()
 
-            for dev_id, cdate, _ in rows:
+            for dev_id, cdate in rows:
                 dev = db.query(DeviceIot).get(dev_id)
                 if not dev:
                     continue
@@ -59,10 +44,10 @@ def device_status_scheduler() -> None:
                     try:
                         requests.post(SERVO_CMD_URL, json={"action": "close"}, timeout=2)
                         print(f"[scheduler] POST close para dev {dev.id}")
-                    except requests.RequestException as e:
+                    except Exception as e:
                         print("[scheduler] POST close:", e)
 
-            # 3) Apertura vigente → status 22 + siempre POST "open"
+            # ─── 2) Apertura vigente ───────────────────────────────────
             rows = db.execute(text("""
                 SELECT r.device_iot_id, r.open_date
                   FROM request r
@@ -77,16 +62,16 @@ def device_status_scheduler() -> None:
 
             for dev_id, odate in rows:
                 dev = db.query(DeviceIot).get(dev_id)
-                if dev and dev.status != 22:
+                if dev and dev.status == 20:   # solo desde “en espera”
                     dev.status = 22
                     print(f"[scheduler] {dev.id} apertura {odate} → 22")
                     try:
                         requests.post(SERVO_CMD_URL, json={"action": "open"}, timeout=2)
                         print(f"[scheduler] POST open para dev {dev.id}")
-                    except requests.RequestException as e:
+                    except Exception as e:
                         print("[scheduler] POST open:", e)
 
-            # 4) Solicitud futura → status 20
+            # ─── 3) Solicitud futura ───────────────────────────────────
             rows = db.execute(text("""
                 SELECT r.device_iot_id, r.open_date
                   FROM request r
@@ -101,9 +86,24 @@ def device_status_scheduler() -> None:
 
             for dev_id, next_open in rows:
                 dev = db.query(DeviceIot).get(dev_id)
-                if dev and dev.status not in (22, 21):
+                if dev and dev.status not in (21, 22):
                     dev.status = 20
                     print(f"[scheduler] {dev.id} espera {next_open} → 20")
+
+            # ─── 4) Sin solicitud activa ───────────────────────────────
+            # Finalmente, si no hay request *alguna* (ni futura ni vigente),
+            # lo marcamos inactivo:
+            for dev in db.query(DeviceIot).filter(DeviceIot.devices_id == VALVE_TYPE_ID):
+                # si no hay ninguna solicitud aprobada ni vigente
+                has_any = db.execute(text("""
+                    SELECT 1 FROM request
+                     WHERE device_iot_id = :dev_id
+                       AND status = 17
+                     LIMIT 1
+                """), {"dev_id": dev.id}).first()
+                if not has_any and dev.status != 12:
+                    dev.status = 12
+                    print(f"[scheduler] {dev.id} → 12 (sin solicitud alguna)")
 
             db.commit()
 
