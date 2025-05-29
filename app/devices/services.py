@@ -1,10 +1,12 @@
 from datetime import timedelta, datetime
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import text
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from app.devices_request.models import Request
+import requests
 # Importaciones desde app.devices.models (ajusta si es necesario)
 from app.devices.models import (
     DeviceIot,
@@ -721,106 +723,151 @@ class DeviceService:
     def update_device_reading_by_lot(
             self, reading: DeviceIotReadingUpdateByLot
         ) -> Dict[str, Any]:
-        # ─── IDs de DeviceType (ajusta según tu BD) ───────────────────────────
-        VALVE_TYPE_ID = 1   # 1 → válvula
-        METER_TYPE_ID = 2   # medidor
-        try:
-            # ─────────────────── 1) Validación básica
-            data      = reading.dict()
-            device_id = data.get("device_id")
-            lot_id    = data.get("lot_id")
+            # ─── IDs de DeviceType ────────────────────────────────────────────────
+            VALVE_TYPE_ID   = 1    # válvula
+            METER_TYPE_ID   = 2    # medidor
 
-            if device_id is None or lot_id is None:
-                return JSONResponse(
-                    status_code=400,
-                    content={"success": False,
-                            "data": "Faltan device_id o lot_id"}
-                )
+            # ─── Estados y tipos de falla ─────────────────────────────────────────
+            STATUS_OPEN     = 22   # vars.id para “abierto”
+            STATUS_FAILURE  = 26   # vars.id para “Fallo detectado”
+            FAILURE_TYPE_ID = 2    # type_failure.id para “Fuga”
+            MAINT_STATUS_ID = 24   # vars.id para “pendiente” en maintenance_status_id
 
-            device = self.db.query(DeviceIot).get(device_id)
-            if not device:
-                return JSONResponse(
-                    status_code=404,
-                    content={"success": False,
-                            "data": "Dispositivo no encontrado"}
-                )
+            try:
+                # 1) Validación básica
+                data      = reading.dict()
+                device_id = data.get("device_id")
+                lot_id    = data.get("lot_id")
+                d_type    = data.get("device_type_id")
 
-            # ─────────────────── 2) Garantizar lote correcto
-            if device.lot_id != lot_id:
-                device.lot_id = lot_id                # (reasignación automática)
+                if device_id is None or lot_id is None:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"success": False, "data": "Faltan device_id o lot_id"}
+                    )
 
-            # ─────────────────── 3) Guardar lecturas crudas
-            for k in ("device_id", "lot_id", "device_type_id"):
-                data.pop(k, None)
-            device.data_devices = data
+                device = self.db.query(DeviceIot).get(device_id)
+                if not device:
+                    return JSONResponse(
+                        status_code=404,
+                        content={"success": False, "data": "Dispositivo no encontrado"}
+                    )
 
-            # ─────────────────── 4) Procesar final_volume
-            if "final_volume" in data:
-                try:
-                    final_volume = float(data["final_volume"])
-                except (TypeError, ValueError):
-                    final_volume = 0.0
-                print(f"[final_volume] recibido {final_volume} L")
+                # 2) Asegurar lote
+                if device.lot_id != lot_id:
+                    device.lot_id = lot_id
 
-                # ►-- Buscar la válvula **de este lote**
-                valve = (
-                    self.db.query(DeviceIot)
-                    .filter(DeviceIot.lot_id == lot_id,
-                            DeviceIot.devices_id == VALVE_TYPE_ID)
-                    .first()
-                )
-                if not valve:
-                    print(f"[final_volume] Lote {lot_id} sin válvula registrada")
-                else:
-                    # último request aprobado para esa válvula
-                    request_obj = (
-                        self.db.query(Request)
-                        .filter(Request.device_iot_id == valve.id,
-                                Request.status == 17)       # aprobado
-                        .order_by(Request.id.desc())
+                # 3) Guardar lecturas crudas
+                for key in ("device_id", "lot_id", "device_type_id"):
+                    data.pop(key, None)
+                device.data_devices = data
+
+                # 4) Detección de fuga (sensor_value del medidor)
+                if d_type == METER_TYPE_ID and "sensor_value" in data:
+                    try:
+                        sensor_value = float(data["sensor_value"])
+                    except (TypeError, ValueError):
+                        sensor_value = 0.0
+
+                    # Buscar válvula de este lote
+                    valve = (
+                        self.db.query(DeviceIot)
+                        .filter(DeviceIot.lot_id == lot_id,
+                                DeviceIot.devices_id == VALVE_TYPE_ID)
                         .first()
                     )
 
-                    if request_obj:
-                        meas = (
-                            self.db.query(ConsumptionMeasurement)
-                            .filter(ConsumptionMeasurement.request_id
-                                    == request_obj.id)
+                    if valve and sensor_value > 0 and valve.status != STATUS_OPEN:
+                        # a) Marcar estado de fallo
+                        valve.status = STATUS_FAILURE
+
+                        # b) Crear un Request de cierre para la válvula
+                        cierre = Request(
+                            device_iot_id = valve.id,
+                            action        = "close",
+                            status        = 18,              # Pendiente
+                            created_at    = datetime.now()
+                        )
+                        self.db.add(cierre)
+
+                        # c) Insertar registro en maintenance (SQL crudo)
+                        sql = text("""
+                            INSERT INTO maintenance
+                                (device_iot_id, type_failure_id, description_failure, date, maintenance_status_id)
+                            VALUES
+                                (:did, :tfid, :desc, :now, :msid)
+                        """)
+                        self.db.execute(sql, {
+                            "did":   valve.id,
+                            "tfid":  FAILURE_TYPE_ID,
+                            "desc":  f"Fuga detectada: {sensor_value:.3f} L con válvula cerrada",
+                            "now":   datetime.now(),
+                            "msid":  MAINT_STATUS_ID
+                        })
+                        print(f"[FUGA] Device {valve.id}: estado {STATUS_FAILURE}, Request close creado y registro de maintenance insertado")
+
+                # 5) Procesar final_volume si existe
+                if "final_volume" in data:
+                    try:
+                        final_volume = float(data["final_volume"])
+                    except (TypeError, ValueError):
+                        final_volume = 0.0
+                    print(f"[final_volume] recibido {final_volume} L")
+
+                    valve = (
+                        self.db.query(DeviceIot)
+                        .filter(DeviceIot.lot_id == lot_id,
+                                DeviceIot.devices_id == VALVE_TYPE_ID)
+                        .first()
+                    )
+                    if not valve:
+                        print(f"[final_volume] Lote {lot_id} sin válvula registrada")
+                    else:
+                        # Último request aprobado para esa válvula
+                        request_obj = (
+                            self.db.query(Request)
+                            .filter(Request.device_iot_id == valve.id,
+                                    Request.status == 17)  # aprobado
+                            .order_by(Request.id.desc())
                             .first()
                         )
-                        if meas:
-                            if final_volume > 0 or meas.final_volume == 0:
-                                print(f"[final_volume] Req {request_obj.id}: "
-                                    f"{meas.final_volume} → {final_volume} L")
-                                meas.final_volume = final_volume
+
+                        if request_obj:
+                            meas = (
+                                self.db.query(ConsumptionMeasurement)
+                                .filter(ConsumptionMeasurement.request_id == request_obj.id)
+                                .first()
+                            )
+                            if meas:
+                                if final_volume > 0 or meas.final_volume == 0:
+                                    print(f"[final_volume] Req {request_obj.id}: {meas.final_volume} → {final_volume} L")
+                                    meas.final_volume = final_volume
+                            else:
+                                self.db.add(ConsumptionMeasurement(
+                                    request_id   = request_obj.id,
+                                    final_volume = final_volume
+                                ))
+                                print(f"[final_volume] Guardado Req {request_obj.id}: {final_volume} L")
                         else:
-                            self.db.add(ConsumptionMeasurement(
-                                request_id   = request_obj.id,
-                                final_volume = final_volume
-                            ))
-                            print(f"[final_volume] Guardado Req {request_obj.id} "
-                                f": {final_volume} L")
-                    else:
-                        print(f"[final_volume] Sin request aprobado para válvula "
-                            f"id={valve.id}")
+                            print(f"[final_volume] Sin request aprobado para válvula id={valve.id}")
 
-            # ─────────────────── 5) Commit
-            self.db.commit()
-            self.db.refresh(device)
+                # 6) Commit y refresco
+                self.db.commit()
+                self.db.refresh(device)
+                return JSONResponse(
+                    status_code=200,
+                    content={"success": True, "data": jsonable_encoder(device)}
+                )
 
-            return JSONResponse(status_code=200,
-                                content={"success": True,
-                                        "data": jsonable_encoder(device)})
-
-        except Exception as e:
-            self.db.rollback()
-            return JSONResponse(
-                status_code=500,
-                content={"success": False,
-                        "data": {"title": "Error al actualizar lectura",
-                                "message": str(e)}}
-            )
-
+            except Exception as e:
+                self.db.rollback()
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "success": False,
+                        "data": {"title": "Error al actualizar lectura", "message": str(e)}
+                    }
+                )
 
 
 

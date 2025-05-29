@@ -9,17 +9,17 @@ from sqlalchemy import text
 from app.database import SessionLocal
 from app.devices.models import DeviceIot
 
-PORT          = os.getenv("PORT", "8000")
+PORT          = os.getenv("PORT", "8003")
 SERVO_CMD_URL = f"http://localhost:{PORT}/devices/devices/servo-command"
 VALVE_TYPE_ID = 2
-OFFSET_HOURS  = -5  # UTC-5 Bogotá
+
 
 def device_status_scheduler() -> None:
     print("[scheduler] hilo iniciado")
     while True:
         db = SessionLocal()
         try:
-            now = datetime.utcnow() + timedelta(hours=OFFSET_HOURS)
+            now = datetime.now()
 
             # 1) CIERRE EXPIRADO → cerrar + status 12 (No Operativo)
             rows = db.execute(text("""
