@@ -257,14 +257,9 @@ def set_servo_command(command: ServoCommand):
     _servo_action["action"] = command.action
     return {"action": command.action}
 
-@router.get("/devices/servo-command", response_model=Dict[str,str])
+@router.get("/devices/servo-command", response_model=Dict[str, str])
 def get_servo_command():
-    """
-    Devuelve el comando pendiente para el servo y luego lo limpia.
-    """
-    global _servo_action
     cmd = _servo_action.get("action")
-    # Una vez leído, lo borramos para no reenviarlo
     _servo_action["action"] = None
     return {"action": cmd or ""}
 
@@ -272,8 +267,6 @@ def get_servo_command():
 def open_valve(payload: ValveDevice, db: Session = Depends(get_db)):
     device_id = payload.device_id
     now = now_local()
-    print(f"[open-valve] now={now.isoformat()} comprobando solicitud")
-
     active_request = (
         db.query(Request)
           .filter(
@@ -286,28 +279,19 @@ def open_valve(payload: ValveDevice, db: Session = Depends(get_db)):
     )
     if not active_request:
         raise HTTPException(status_code=403, detail="No hay una solicitud activa en este momento.")
-
     device = db.query(DeviceIoT).get(device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Dispositivo no encontrado.")
-
-    device.status = 22  # Abierto
+    device.status = 22
     db.commit()
     db.refresh(device)
-    print(f"[open-valve] dispositivo {device_id} status → 22 (Abierto)")
-
-    global _servo_action
     _servo_action["action"] = "open"
-
     return {"action": "open"}
-
 
 @router.post("/devices/close-valve", response_model=Dict[str, str])
 def close_valve(payload: ValveDevice, db: Session = Depends(get_db)):
     device_id = payload.device_id
     now = now_local()
-    print(f"[close-valve] now={now.isoformat()} comprobando solicitud")
-
     active_request = (
         db.query(Request)
           .filter(
@@ -320,20 +304,16 @@ def close_valve(payload: ValveDevice, db: Session = Depends(get_db)):
     )
     if not active_request:
         raise HTTPException(status_code=403, detail="No hay una solicitud activa en este momento.")
-
     device = db.query(DeviceIoT).get(device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Dispositivo no encontrado.")
-
-    device.status = 21  # Cerrado
+    device.status = 21
     db.commit()
     db.refresh(device)
-    print(f"[close-valve] dispositivo {device_id} status → 21 (Cerrado)")
+    _servo_action["action"] = "close_manual"
+    return {"action": "close_manual"}
 
-    global _servo_action
-    _servo_action["action"] = "close"
 
-    return {"action": "close"}
 
 @router.get("/consumption/{device_id}", response_model=Dict[str, Any])
 def get_meter_consumption(device_id: int, db: Session = Depends(get_db)):
