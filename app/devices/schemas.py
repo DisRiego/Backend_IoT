@@ -108,7 +108,7 @@ class DeviceIotReadingUpdateByLot(BaseModel):
     device_id: int
     lot_id: int
     device_type_id: int
-    sensor_value: Optional[int] = None  
+    sensor_value: Optional[float] = None 
 
     class Config:
         orm_mode = True
@@ -131,3 +131,34 @@ class DeviceCategoryResponse(BaseModel):
     class Config:
         orm_mode = True
 
+class NotificationBase(BaseModel):
+    """Esquema base para notificaciones"""
+    title: str
+    message: str
+    type: str
+
+class NotificationCreate(NotificationBase):
+    """Esquema para crear una notificación"""
+    user_id: int
+
+class NotificationResponse(NotificationBase):
+    """Esquema para respuesta de notificación"""
+    id: int
+    user_id: int
+    read: bool
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class ServoCommand(BaseModel):
+    action: str
+
+
+class ValveDevice(BaseModel):
+    device_id: int = Field(..., title="ID del dispositivo IoT")
+
+    class Config:
+        schema_extra = {
+            "example": {"device_id": 7}
+        }

@@ -10,8 +10,8 @@ COPY . /app/
 # Instala las dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expone el puerto 8001 para FastAPI
+# Expone el puerto 8000 para FastAPI
 EXPOSE 8000
 
 # Comando de inicio del backend
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

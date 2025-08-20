@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime , timedelta
+from fastapi.encoders import jsonable_encoder
 from app.devices.schemas import DeviceAssignRequest, DeviceReassignRequest
 from app.database import get_db
+from app.devices_request.models import Request , DeviceIoT
 from app.devices.services import DeviceService
+from app.devices.models import User, Notification 
 from app.devices.schemas import (
     DeviceCreate, 
     DeviceUpdate, 
@@ -12,10 +15,20 @@ from app.devices.schemas import (
     DeviceAssignRequest,
     DeviceStatusChange,
     DeviceFilter,
-    DeviceIotReadingUpdateByLot
+    DeviceIotReadingUpdateByLot,
+    ServoCommand,
+    ValveDevice
 )
 
+
+
 router = APIRouter(prefix="/devices", tags=["Devices"])
+
+
+OFFSET_HOURS = -5 
+def now_local():
+    return datetime.utcnow() + timedelta(hours=OFFSET_HOURS)
+
 
 @router.get("/", response_model=Dict[str, Any])
 def get_all_devices(db: Session = Depends(get_db)):
@@ -143,14 +156,177 @@ def filter_devices(
         
 
 @router.post("/sensor_update_by_lot", response_model=Dict[str, Any])
-def update_sensor_data_by_lot(data: dict, db: Session = Depends(get_db)):
-    """
-    Recibe el JSON del Arduino y actualiza el registro operativo en device_iot.
-    Se espera un JSON con, al menos:
-      - device_id: ID del dispositivo operativo
-      - lot_id: ID del lote
-      - (otros campos que se guardarán en price_device)
-    """
+def update_sensor_data_by_lot(
+    reading: DeviceIotReadingUpdateByLot,
+    db: Session = Depends(get_db)
+):
     device_service = DeviceService(db)
-    return device_service.update_device_reading_by_lot(data)
+    return device_service.update_device_reading_by_lot(reading)
 
+@router.get("/notifications/user/{user_id}", response_model=Dict[str, Any])
+def get_user_notifications(
+    user_id: int, 
+    limit: int = Query(50, ge=1, le=100), 
+    unread_only: bool = Query(False),
+    db: Session = Depends(get_db)
+):
+    """Obtener notificaciones de un usuario"""
+    try:
+        # Verificar si el usuario existe
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        # Consultar las notificaciones
+        query = db.query(Notification).filter(Notification.user_id == user_id)
+        
+        if unread_only:
+            query = query.filter(Notification.read == False)
+            
+        notifications = query.order_by(Notification.created_at.desc()).limit(limit).all()
+
+        return {
+            "success": True,
+            "data": jsonable_encoder(notifications)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener las notificaciones: {str(e)}")
+
+@router.put("/notifications/{notification_id}/read", response_model=Dict[str, Any])
+def mark_notification_as_read(notification_id: int, db: Session = Depends(get_db)):
+    """Marcar una notificación específica como leída"""
+    try:
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+        if not notification:
+            raise HTTPException(status_code=404, detail="Notificación no encontrada")
+
+        notification.read = True
+        db.commit()
+        db.refresh(notification)
+
+        return {
+            "success": True,
+            "data": {
+                "title": "Notificaciones",
+                "message": "Notificación marcada como leída correctamente"
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al marcar la notificación como leída: {str(e)}")
+
+@router.put("/notifications/user/{user_id}/read-all", response_model=Dict[str, Any])
+def mark_all_notifications_as_read(user_id: int, db: Session = Depends(get_db)):
+    """Marcar todas las notificaciones de un usuario como leídas"""
+    try:
+        # Verificar si el usuario existe
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        # Marcar todas las notificaciones no leídas como leídas
+        result = db.query(Notification).filter(
+            Notification.user_id == user_id,
+            Notification.read == False
+        ).update({"read": True})
+        
+        db.commit()
+
+        return {
+            "success": True,
+            "data": {
+                "title": "Notificaciones",
+                "message": f"Se han marcado {result} notificaciones como leídas"
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al marcar las notificaciones como leídas: {str(e)}")
+
+
+_servo_action: Dict[str, str] = {"action": None}
+
+@router.post("/devices/servo-command", response_model=Dict[str, str])
+def set_servo_command(command: ServoCommand):
+    """
+    Establece el comando del servo. action debe ser "open" o "close".
+    """
+    global _servo_action
+    if command.action not in ("open", "close"):
+        return {"error": "action debe ser 'open' o 'close'"}
+    _servo_action["action"] = command.action
+    return {"action": command.action}
+
+@router.get("/devices/servo-command", response_model=Dict[str, str])
+def get_servo_command():
+    cmd = _servo_action.get("action")
+    _servo_action["action"] = None
+    return {"action": cmd or ""}
+
+@router.post("/devices/open-valve", response_model=Dict[str, str])
+def open_valve(payload: ValveDevice, db: Session = Depends(get_db)):
+    device_id = payload.device_id
+    now = now_local()
+    active_request = (
+        db.query(Request)
+          .filter(
+              Request.device_iot_id == device_id,
+              Request.status == 17,
+              Request.open_date <= now,
+              Request.close_date >= now
+          )
+          .first()
+    )
+    if not active_request:
+        raise HTTPException(status_code=403, detail="No hay una solicitud activa en este momento.")
+    device = db.query(DeviceIoT).get(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo no encontrado.")
+    device.status = 22
+    db.commit()
+    db.refresh(device)
+    _servo_action["action"] = "open"
+    return {"action": "open"}
+
+@router.post("/devices/close-valve", response_model=Dict[str, str])
+def close_valve(payload: ValveDevice, db: Session = Depends(get_db)):
+    device_id = payload.device_id
+    now = now_local()
+    active_request = (
+        db.query(Request)
+          .filter(
+              Request.device_iot_id == device_id,
+              Request.status == 17,
+              Request.open_date <= now,
+              Request.close_date >= now
+          )
+          .first()
+    )
+    if not active_request:
+        raise HTTPException(status_code=403, detail="No hay una solicitud activa en este momento.")
+    device = db.query(DeviceIoT).get(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo no encontrado.")
+    device.status = 21
+    db.commit()
+    db.refresh(device)
+    _servo_action["action"] = "close_manual"
+    return {"action": "close_manual"}
+
+
+
+@router.get("/consumption/{device_id}", response_model=Dict[str, Any])
+def get_meter_consumption(device_id: int, db: Session = Depends(get_db)):
+    """
+    Historial de volúmenes finales del medidor (tabla consumption_measurements).
+    """
+    svc = DeviceService(db)
+    return svc.get_meter_consumption(device_id)
+
+@router.get("/meter/current/{device_id}", response_model=Dict[str, Any])
+def get_current_meter_reading(device_id: int, db: Session = Depends(get_db)):
+    """
+    Lectura actual acumulada del medidor (campo data_devices.sensor_value).
+    """
+    svc = DeviceService(db)
+    return svc.get_current_meter_reading(device_id)
