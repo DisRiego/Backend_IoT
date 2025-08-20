@@ -13,6 +13,7 @@ from app.arduino_reader import (
 import threading, time
 
 app = FastAPI(
+    root_path="/disriego/iot",
     title="Distrito de Riego API Gateway - IoT",
     description="API Gateway para IoT en el sistema de riego",
     version="1.0.0",
